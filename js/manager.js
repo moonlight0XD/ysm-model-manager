@@ -531,6 +531,49 @@
     });
   }
 
+  // ---- 模型資訊中的連結：每個連結一個「前往」按鈕，開啟前先警告 ----
+  const URL_RE = /https?:\/\/[^\s<>"'）)】」』，。、；]+/gi;
+  function modelLinks(e) {
+    const out = [...((e.meta && e.meta.links) || [])];
+    const add = (label, text) => {
+      for (let u of String(text || '').match(URL_RE) || []) {
+        u = u.replace(/[.,;:!?]+$/, '');
+        if (!out.some((x) => x.url === u)) out.push({ label, url: u });
+      }
+    };
+    add('說明中的連結', e.meta && e.meta.tips);
+    add('檔頭公開資訊中的連結', e.summary && e.summary.text);
+    return out.slice(0, 20);
+  }
+  const hostOf = (u) => { try { return new URL(u).host; } catch (err) { return ''; } };
+  function linksSection(e) {
+    const links = modelLinks(e);
+    if (!links.length) return '';
+    const rows = links.map((l) => `<div class="link-row">
+        <span class="n"><b>${esc(l.label)}</b><small title="${esc(l.url)}">${esc(l.url)}</small></span>
+        <button class="btn small ghost" data-url="${esc(l.url)}" data-label="${esc(l.label)}">前往 ↗</button>
+      </div>`).join('');
+    return `<div class="d-sec"><h3>連結（${links.length}）</h3><div class="link-list">${rows}</div>
+      <div class="muted small-note">這些連結由模型作者提供，管理器無法確認是否安全，開啟前會再提醒一次。</div></div>`;
+  }
+  async function openExternal(url, label) {
+    const host = hostOf(url);
+    if (!host || !/^https?:$/i.test(new URL(url).protocol)) { toast('只能開啟 http 或 https 連結', true); return; }
+    const r = await ask({
+      title: '即將開啟外部連結',
+      body: `${label ? esc(label) + '\n' : ''}網站：<b>${esc(host)}</b>\n<small>${esc(url)}</small>\n\n`
+        + '<span class="warn">⚠ 這是模型作者提供的連結，管理器無法確認它是否安全。</span>\n'
+        + '・確認網址是你預期的網站，小心仿冒網址\n'
+        + '・不要在不熟悉的網站輸入密碼、帳號或付款資訊\n'
+        + '・不要下載或執行來路不明的檔案'
+        + (/^http:/i.test(url) ? '\n・<span class="warn">這個連結沒有加密（http），傳送的資料可能被看到</span>' : ''),
+      ok: '在瀏覽器開啟', cancel: '不要開啟', danger: true,
+    });
+    if (r.ok) await api('open_url', url);
+  }
+  // 讓內嵌的 3D 預覽器（iframe）也走同一個警告
+  window.ysmOpenLink = guard(openExternal);
+
   function versionsSection(e) {
     const vs = versionsOf(e);
     if (vs.length < 2) return '';
@@ -572,7 +615,7 @@
         ${e.source ? `<button class="btn ghost" id="bToggle">${e.enabled ? '停用' : '啟用'}</button>` : ''}
         <button class="btn ghost" id="bReveal">在檔案總管中顯示</button>
         <button class="btn ghost" id="bRename">重新命名</button>
-        ${e.location === 'repo' ? '<button class="btn danger" id="bDelRepo">從倉庫刪除</button>' : ''}
+        <button class="btn danger" id="bDelModel">${e.location === 'repo' ? '從倉庫刪除' : '刪除'}</button>
       </div>
       ${installSection(e)}
       ${e.kind === 'ysm' ? '<div class="d-sec note">這是加密的 .ysm 模型，只能在遊戲內的 YSM 選單預覽 3D。建議在遊戲中截圖，再用「從遊戲截圖選」設為縮圖。</div>' : ''}
@@ -596,6 +639,7 @@
       ${authors ? `<div class="d-sec"><h3>作者</h3>${authors}</div>` : ''}
       ${m.tips ? `<div class="d-sec"><h3>說明</h3><div class="note" style="white-space:pre-wrap">${esc(m.tips)}</div></div>` : ''}
       ${e.kind === 'ysm' ? `<div class="d-sec"><h3>檔頭公開資訊</h3>${e.summary && e.summary.text ? `<div class="summary">${esc(e.summary.text)}</div>` : '<div class="muted" style="font-size:12px">這個檔案沒有可讀的公開摘要。</div>'}</div>` : ''}
+      ${linksSection(e)}
     `;
 
     const q = (id) => box.querySelector('#' + id);
@@ -613,20 +657,30 @@
       if (again) { S.sel = again.id; renderGrid(); renderDetail(); }
     });
     q('bReveal').onclick = guard(() => api('reveal', e.id));
+    box.querySelectorAll('[data-url]').forEach((b) => {
+      b.onclick = guard(() => openExternal(b.dataset.url, b.dataset.label));
+    });
     box.querySelectorAll('[data-ver]').forEach((b) => {
       b.onclick = () => { if (S.sel === b.dataset.ver) return; S.sel = b.dataset.ver; renderGrid(); renderDetail(); };
     });
-    if (q('bDelRepo')) q('bDelRepo').onclick = guard(async () => {
+    q('bDelModel').onclick = guard(async () => {
       const info = await api('delete_info', e.id);
-      const where = info.installs.length
-        ? `\n\n已安裝在：${info.installs.map(esc).join('、')}。\n<b>實例中的那份不會被刪除</b>，遊戲仍可使用。`
-        : '';
+      let where;
+      if (info.in_repo) {
+        where = info.installs.length
+          ? `\n\n已安裝在：${info.installs.map(esc).join('、')}。\n<b>實例中的那份不會被刪除</b>，遊戲仍可使用。`
+          : '';
+      } else {
+        where = `\n\n只會從「${esc(info.instance)}」刪除，遊戲中就不能再使用這個模型。`
+          + (info.backup ? '\n倉庫中有這個模型，之後可以再安裝回來。' : '\n<span class="warn">倉庫中沒有這個模型的備份。</span>')
+          + (info.installs.length ? `\n${info.installs.map(esc).join('、')} 中的那份不受影響。` : '');
+      }
       const fate = info.recycle
         ? '檔案會移到<b>資源回收筒</b>，需要時可以還原。'
         : '<span class="warn">這個磁碟沒有資源回收筒，刪除後無法復原！</span>';
       const r1 = await ask({
-        title: '從倉庫刪除模型',
-        body: `要從倉庫刪除「<b>${esc(displayName(e))}</b>」嗎？\n${esc(info.name)}（${esc(info.size)}）${where}\n\n${fate}`,
+        title: info.in_repo ? '從倉庫刪除模型' : '刪除遊戲實例中的模型',
+        body: `要刪除「<b>${esc(displayName(e))}</b>」嗎？\n${esc(info.name)}（${esc(info.size)}）${where}\n\n${fate}`,
         ok: '刪除', danger: true,
       });
       if (!r1.ok) return;
@@ -638,7 +692,7 @@
         });
         if (!r2.ok) return;
       }
-      const res = await api('delete_repo_model', e.id);
+      const res = await api('delete_model', e.id);
       toast(res.recycled ? '已刪除（已移到資源回收筒）' : '已永久刪除');
       S.sel = null;
       await rescan();
@@ -721,6 +775,8 @@
     $('setRepoOpen').disabled = !S.repo;
     $('setDataPath').textContent = st.data_dir_now || '';
     $('setDataReset').disabled = !st.data_dir;
+    $('aboutVer').textContent = st.version ? 'v' + st.version : '';
+    $('btnGithub').title = st.github || '';
   }
   $('btnSettings').onclick = guard(async () => {
     S.settings = await api('get_settings');
@@ -740,6 +796,9 @@
   $('setConfirmDel').onchange = saveSetting(() => ({ confirm_delete_twice: $('setConfirmDel').checked }));
   $('setRepoChange').onclick = async () => { await $('btnRepo').onclick(); renderSettings(); };
   $('setRepoOpen').onclick = guard(() => api('open_special_dir', 'repo'));
+  $('btnGithub').onclick = guard(() => api('open_project_page', 'home'));
+  $('btnGithubTop').onclick = guard(() => api('open_project_page', 'home'));
+  $('btnReleases').onclick = guard(() => api('open_project_page', 'releases'));
   $('setDataOpen').onclick = guard(() => api('open_special_dir', 'data'));
   async function moveData(target) {
     const r = await ask({
@@ -760,6 +819,45 @@
     await moveData(path);
   });
   $('setDataReset').onclick = guard(async () => { await moveData(S.settings.data_dir_default); });
+
+  // ---- 解除安裝管理器 ----
+  async function renderUninstall() {
+    try {
+      const u = await api('uninstall_info');
+      $('unRestoreText').textContent = u.disabled
+        ? `把 ${u.disabled} 個停用的模型移回原位（否則遊戲不會讀取它們）`
+        : '把停用的模型移回原位（目前沒有停用的模型）';
+      $('unModText').textContent = u.mod_instances.length
+        ? `同時移除遊戲實例中的 YSM Shot MOD（${u.mod_instances.join('、')}）`
+        : '同時移除各遊戲實例中的 YSM Shot MOD（目前沒有安裝）';
+    } catch (e) { /* 忽略 */ }
+  }
+  $('btnSettings').addEventListener('click', renderUninstall);
+  $('btnUninstall').onclick = guard(async () => {
+    const u = await api('uninstall_info');
+    const restore = $('unRestore').checked, mod = $('unMod').checked;
+    const steps = [];
+    if (restore && u.disabled) steps.push(`把 ${u.disabled} 個停用的模型移回原位`);
+    if (mod && u.mod_instances.length) steps.push(`從 ${u.mod_instances.map(esc).join('、')} 移除 YSM Shot MOD`);
+    steps.push('關閉管理器');
+    steps.push(`刪除管理器的資料（設定、標籤、評分、備註、縮圖）\n　<small>${esc(u.data_dir)}</small>`);
+    if (u.exe) steps.push(`刪除程式本身\n　<small>${esc(u.exe)}</small>`);
+    const r1 = await ask({
+      title: '解除安裝 YSM 模型管理器',
+      body: `將會：\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n<b>遊戲、倉庫和所有模型檔案都不會被刪除。</b>`
+        + (!restore && u.disabled ? `\n<span class="warn">你選擇不移回停用的模型：那 ${u.disabled} 個模型會留在 ysm_manager_disabled 資料夾，遊戲不會讀取。</span>` : ''),
+      ok: '解除安裝', danger: true,
+    });
+    if (!r1.ok) return;
+    const r2 = await ask({
+      title: '再次確認',
+      body: '確定要解除安裝嗎？\n標籤、評分、備註和縮圖刪除後<span class="warn">無法復原</span>。',
+      ok: '確定解除安裝', cancel: '不要', danger: true,
+    });
+    if (!r2.ok) return;
+    await api('uninstall_app', restore, mod);
+    document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:16px;color:#aaa">已解除安裝，管理器即將關閉…</div>';
+  });
 
   // ---------------- 截圖挑選 ----------------
   const openShots = guard(async () => {

@@ -5,6 +5,23 @@
   const L = window.YSMLoader;
   if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
 
+  // 模型資訊中的外部連結：開啟前先警告。內嵌在管理器時交給管理器處理（用系統瀏覽器開啟）
+  document.addEventListener('click', (ev) => {
+    const a = ev.target.closest && ev.target.closest('a[href]');
+    if (!a || !/^https?:/i.test(a.href)) return;
+    ev.preventDefault();
+    try {
+      if (window.parent !== window && typeof window.parent.ysmOpenLink === 'function') {
+        window.parent.ysmOpenLink(a.href, a.textContent.trim());
+        return;
+      }
+    } catch (e) { /* 不同來源時無法存取 parent */ }
+    const host = new URL(a.href).host;
+    if (window.confirm(`即將開啟外部連結：\n${host}\n${a.href}\n\n⚠ 這是模型作者提供的連結，無法確認是否安全。\n不要在不熟悉的網站輸入密碼或付款資訊，也不要下載執行來路不明的檔案。\n\n確定要前往嗎？`)) {
+      window.open(a.href, '_blank', 'noopener');
+    }
+  });
+
   // ---------------- three.js 場景 ----------------
   const canvas = $('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, alpha: false });

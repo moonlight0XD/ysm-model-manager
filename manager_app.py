@@ -29,6 +29,8 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
+APP_VERSION = '1.1'
+GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
 else:
@@ -125,6 +127,33 @@ def zip_name(info):
     return info.filename
 
 
+URL_RE = re.compile(r'https?://[^\s<>"\'）)】」』，。、；]+', re.I)
+
+
+def collect_links(m):
+    """從模型資訊（說明、授權說明、作者聯絡方式、主頁／贊助）找出所有 http(s) 連結"""
+    links = []
+
+    def add(label, text):
+        for u in URL_RE.findall(str(text or '')):
+            u = u.rstrip('.,;:!?')
+            if len(u) < 2000 and not any(x['url'] == u for x in links):
+                links.append({'label': label, 'url': u})
+    add('說明中的連結', m.get('tips'))
+    lic = m.get('license')
+    if isinstance(lic, dict):
+        add('授權說明中的連結', lic.get('desc'))
+    for a in m.get('authors') or []:
+        if isinstance(a, dict) and isinstance(a.get('contact'), dict):
+            for k, v in a['contact'].items():
+                add(f"{a.get('name') or '作者'}：{k}", v)
+    link = m.get('link')
+    if isinstance(link, dict):
+        for k, v in link.items():
+            add({'home': '模型主頁', 'donate': '贊助'}.get(k, str(k)), v)
+    return links[:20]
+
+
 def norm_meta(m):
     """把 ysm.json metadata 或舊版資訊整理成統一格式"""
     if not isinstance(m, dict):
@@ -143,6 +172,7 @@ def norm_meta(m):
         'tips': str(m.get('tips') or ''),
         'license': str(lic or ''),
         'authors': authors,
+        'links': collect_links(m),
     }
 
 
@@ -1018,25 +1048,31 @@ class Api:
                 errors.append(f"{e['filename']}：{ex}")
         return {'done': done, 'copied': copied, 'errors': errors}
 
-    # ---------- 刪除倉庫中的模型 ----------
+    # ---------- 刪除模型（倉庫或遊戲實例中的）----------
     def delete_info(self, eid):
         e = self._entry(eid)
-        if e.get('location') != 'repo':
-            raise ValueError('只能刪除倉庫中的模型')
-        installs = sorted({instance_name(x['root']) for x in LIB.entries.values()
-                           if x.get('location') not in (None, 'repo') and x['key'] == e['key']})
+        in_repo = e.get('location') == 'repo'
+        if in_repo:
+            others = sorted({instance_name(x['root']) for x in LIB.entries.values()
+                             if x.get('location') not in (None, 'repo') and x['key'] == e['key']})
+        else:
+            others = sorted({instance_name(x['root']) for x in LIB.entries.values()
+                             if x.get('location') not in (None, 'repo') and x['key'] == e['key'] and x['id'] != eid})
         return {'name': e['filename'], 'path': e['path'], 'size': human_size(e['size']),
-                'installs': installs, 'recycle': can_recycle(e['path'])}
+                'in_repo': in_repo, 'instance': '' if in_repo else instance_name(e['root']),
+                'installs': others,  # 倉庫：已安裝在哪些實例；實例：其他也有這個模型的實例
+                'backup': (not in_repo) and bool(self._repo_entry_for(e['key'])),
+                'recycle': can_recycle(e['path'])}
 
-    def delete_repo_model(self, eid):
-        """從倉庫刪除（能用資源回收筒就丟進回收筒）。已安裝到實例中的不受影響。"""
+    def delete_model(self, eid):
+        """刪除倉庫或遊戲實例中的一個模型（能用資源回收筒就丟進回收筒）。其他位置的同一個模型不受影響。"""
         e = self._entry(eid)
-        if e.get('location') != 'repo':
-            raise ValueError('只能刪除倉庫中的模型')
-        repo = LIB.data.get('repo') or ''
+        base = (LIB.data.get('repo') or '') if e.get('location') == 'repo' else e.get('root', '')
+        if e.get('location') != 'repo' and base not in LIB.data['roots']:
+            raise ValueError('這個模型不屬於已加入的遊戲實例，不會刪除')
         p = os.path.normcase(os.path.abspath(e['path']))
-        if not repo or not p.startswith(os.path.normcase(os.path.abspath(repo)) + os.sep):
-            raise ValueError('這個檔案不在倉庫資料夾內，不會刪除')
+        if not base or not p.startswith(os.path.normcase(os.path.abspath(base)) + os.sep):
+            raise ValueError('這個檔案不在倉庫或遊戲實例的資料夾內，不會刪除')
         recycled = can_recycle(e['path'])
         if recycled:
             send_to_recycle_bin(e['path'])
@@ -1045,9 +1081,108 @@ class Api:
         LIB.entries.pop(eid, None)
         return {'recycled': recycled}
 
+    # ---------- 解除安裝管理器 ----------
+    def _bridge_mod_files(self):
+        out = []
+        for r in LIB.data['roots']:
+            gd = game_dir_of(r)
+            if not gd:
+                continue
+            mods = os.path.join(gd, 'mods')
+            try:
+                for f in os.listdir(mods):
+                    if f.lower().startswith('ysmshot-') and f.lower().endswith('.jar'):
+                        out.append((r, os.path.join(mods, f)))
+            except OSError:
+                pass
+        return out
+
+    def uninstall_info(self):
+        disabled = [e for e in LIB.entries.values() if e.get('location') not in (None, 'repo') and not e['enabled']]
+        return {
+            'base_dir': BASE_DIR, 'data_dir': DATA_DIR,
+            'exe': sys.executable if getattr(sys, 'frozen', False) else '',
+            'disabled': len(disabled),
+            'mod_instances': sorted({instance_name(r) for r, _ in self._bridge_mod_files()}),
+        }
+
+    def uninstall_app(self, restore_disabled=True, remove_mod=True):
+        """
+        解除安裝管理器本身：先（選擇性地）把停用的模型移回原位、移除各實例的 YSM Shot MOD，
+        再關閉程式，由背景腳本在程式結束後刪除管理器的資料與 exe。遊戲與模型檔案不會被刪除。
+        """
+        problems = []
+        if restore_disabled:
+            for e in [x for x in LIB.entries.values() if x.get('location') not in (None, 'repo') and not x['enabled']]:
+                try:
+                    self.set_enabled(e['id'], True)
+                except Exception as ex:
+                    problems.append(f"{e['filename']}：{ex}")
+        if remove_mod:
+            for r, jar in self._bridge_mod_files():
+                try:
+                    os.remove(jar)
+                except OSError:
+                    problems.append(f'{instance_name(r)} 的 YSM Shot MOD 無法刪除（遊戲可能正在執行）')
+                try:
+                    os.remove(os.path.join(game_dir_of(r), 'config', 'ysmshot.json'))
+                except OSError:
+                    pass
+        if problems:
+            # 有東西沒處理好就不要繼續，讓使用者先處理
+            raise ValueError('解除安裝已中止：' + '；'.join(problems[:3]) + ('…' if len(problems) > 3 else ''))
+
+        def q(p):
+            return "'" + p.replace("'", "''") + "'"
+        frozen = getattr(sys, 'frozen', False)
+        pids = [os.getpid()] + ([os.getppid()] if frozen else [])  # onefile 版有一個啟動用的父行程
+        lines = [
+            "$ErrorActionPreference = 'SilentlyContinue'",
+            f"$pids = @({', '.join(map(str, pids))})",
+            "while ($pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }) { Start-Sleep -Milliseconds 500 }",
+            "Start-Sleep -Seconds 1",
+        ]
+        # 只刪除管理器自己的檔案；資料夾（可能是使用者自選的）只在清空後才移除
+        for d in {os.path.normcase(DATA_DIR): DATA_DIR, os.path.normcase(BASE_DIR): BASE_DIR}.values():
+            for name in ('library.json', 'library.json.tmp', 'library.json.broken', 'settings.json', 'settings.json.tmp'):
+                lines.append(f"Remove-Item -LiteralPath {q(os.path.join(d, name))} -Force")
+            for name in ('thumbs', 'webview'):
+                lines.append(f"Remove-Item -LiteralPath {q(os.path.join(d, name))} -Recurse -Force")
+            lines.append(f"if (-not (Get-ChildItem -LiteralPath {q(d)} -Force)) {{ Remove-Item -LiteralPath {q(d)} -Force }}")
+        if frozen:
+            lines.append(f"Remove-Item -LiteralPath {q(sys.executable)} -Force")
+        lines.append("Remove-Item -LiteralPath $PSCommandPath -Force")
+        script = os.path.join(os.environ.get('TEMP') or BASE_DIR, f'ysm_manager_uninstall_{os.getpid()}.ps1')
+        with open(script, 'w', encoding='utf-8-sig') as f:
+            f.write('\r\n'.join(lines) + '\r\n')
+        cmd = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script]
+        base_flags = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+        try:
+            subprocess.Popen(cmd, creationflags=base_flags | 0x01000000, close_fds=True)  # + CREATE_BREAKAWAY_FROM_JOB
+        except OSError:
+            subprocess.Popen(cmd, creationflags=base_flags, close_fds=True)
+
+        def bye():
+            time.sleep(1.2)
+            try:
+                if self.window:
+                    self.window.destroy()
+                    return
+            except Exception:
+                pass
+            os._exit(0)
+        threading.Thread(target=bye, daemon=True).start()
+        return {'ok': True, 'exe': sys.executable if frozen else ''}
+
     # ---------- 設定 ----------
     def get_settings(self):
-        return dict(SETTINGS, data_dir_now=DATA_DIR, data_dir_default=BASE_DIR)
+        return dict(SETTINGS, data_dir_now=DATA_DIR, data_dir_default=BASE_DIR, version=APP_VERSION, github=GITHUB_URL)
+
+    def open_project_page(self, which='home'):
+        """開啟本專案的 GitHub 頁面（固定網址，不需警告）"""
+        import webbrowser
+        webbrowser.open(GITHUB_URL + ('/releases/latest' if which == 'releases' else ''), new=2)
+        return True
 
     def set_settings(self, patch):
         for k in ('lang', 'confirm_copy', 'confirm_delete_twice', 'group_versions'):
@@ -1340,6 +1475,15 @@ class Api:
         subprocess.Popen(['explorer', '/select,', os.path.normpath(e['path'])])
         return True
 
+    def open_url(self, url):
+        """用系統預設瀏覽器開啟連結（只接受 http/https；前端會先顯示警告）"""
+        url = str(url or '').strip()
+        if not re.match(r'^https?://[^\s]+$', url, re.I) or len(url) > 2000:
+            raise ValueError('只能開啟 http 或 https 連結')
+        import webbrowser
+        webbrowser.open(url, new=2)
+        return True
+
     def open_special_dir(self, which):
         """開啟資料存放資料夾（data）或倉庫資料夾（repo）"""
         path = {'data': DATA_DIR, 'repo': LIB.data.get('repo') or ''}.get(which, '')
@@ -1512,6 +1656,7 @@ def main():
     win = webview.create_window(APP_NAME, url, width=1360, height=860, min_size=(960, 600), background_color='#16181d')
     API.window = win
     webview.start(private_mode=False, storage_path=os.path.join(BASE_DIR, 'webview'))
+    os._exit(0)  # 視窗關閉後立即結束（不等背景執行緒），解除安裝腳本才能刪除 exe
 
 
 if __name__ == '__main__':

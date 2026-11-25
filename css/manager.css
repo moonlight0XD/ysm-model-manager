@@ -26,9 +26,12 @@ button { font: inherit; }
 .brand { font-weight: 700; font-size: 15px; margin: 2px 0 10px; display: flex; align-items: center; }
 .icon-btn { margin-left: auto; background: transparent; border: 1px solid var(--line); color: var(--text); border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 15px; line-height: 1; }
 .icon-btn:hover { border-color: var(--accent-2); }
+.icon-btn + .icon-btn { margin-left: 6px; }
+.icon-btn svg { display: block; margin: auto; }
 #askModal { z-index: 70; }
 .ask-card { width: min(460px, 94vw); }
 .ask-body { padding: 14px 16px; line-height: 1.7; white-space: pre-line; word-break: break-all; }
+.ask-body small { color: var(--muted); font-family: Consolas, monospace; font-size: 11px; }
 .ask-body .warn { color: #ff9c9c; font-weight: 600; }
 .ask-input { margin: 0 16px 12px; width: calc(100% - 32px); box-sizing: border-box; }
 .ask-remember { padding: 0 16px 12px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
@@ -112,6 +115,11 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-2); 
 .thumb { aspect-ratio: 3 / 4; background: #1a1c22 center / cover no-repeat; position: relative; display: flex; align-items: center; justify-content: center; }
 .thumb .ph { color: #4b515e; font-size: 34px; font-weight: 700; letter-spacing: 1px; }
 .badge { position: absolute; top: 6px; left: 6px; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: rgba(0,0,0,.65); color: #fff; }
+.link-list { display: flex; flex-direction: column; gap: 4px; }
+.link-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.link-row .n { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.link-row .n b { font-size: 12px; font-weight: 600; }
+.link-row .n small { color: var(--muted); font-size: 11px; font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ver-list { display: flex; flex-direction: column; gap: 4px; }
 .ver-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 8px; align-items: center; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--text); cursor: pointer; font: inherit; }
 .ver-row:hover { border-color: var(--accent-2); }
