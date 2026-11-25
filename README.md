@@ -1,5 +1,8 @@
 # YSM 模型預覽器 / 模型管理器
 
+> [!NOTE]
+> 本專案的程式碼、說明文件與 YSM Shot MOD 由 AI（Anthropic 的 Claude）生成，經作者測試與調整後發布。使用前請自行評估，若發現問題歡迎回報 Issue。
+
 一個離線的 Yes Steve Model（YSM）模型工具，分成兩部分：
 
 - **YSM 模型管理器**（Windows 應用程式）：`dist\YSM模型管理器.exe`，用來整理你收藏的模型
