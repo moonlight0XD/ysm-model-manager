@@ -29,7 +29,7 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '1.1'
+APP_VERSION = '1.2'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
@@ -657,6 +657,14 @@ def send_to_recycle_bin(path):
         raise ValueError(f'無法移到資源回收筒（錯誤碼 {rc}）')
 
 
+def check_folder_name(name):
+    name = (name or '').strip()
+    if (not name or re.search(r'[\\/:*?"<>|]', name) or name in ('.', '..') or name.endswith('.')
+            or len(name) > 80 or name.lower() == DISABLED_DIRNAME.lower()):
+        raise ValueError('資料夾名稱不能空白、不能以 . 結尾，也不能含有 \\ / : * ? " < > |')
+    return name
+
+
 def remove_model(path):
     if os.path.isdir(path):
         shutil.rmtree(path)
@@ -1023,30 +1031,161 @@ class Api:
         for x in LIB.entries.values():
             if x.get('location') == root and x['key'] == e['key']:
                 return {'path': x['path'], 'already': True}
-        dst = os.path.join(root, 'custom', e['filename'])
-        if os.path.exists(os.path.join(root, DISABLED_DIRNAME, 'custom', e['filename'])):
+        # 倉庫中的子資料夾也照樣放進遊戲的 custom（模型 ID 會是「資料夾/檔名」）
+        sub = [p for p in (e.get('group') or '').split('/') if p]
+        dst = os.path.join(root, 'custom', *sub, e['filename'])
+        if os.path.exists(os.path.join(root, DISABLED_DIRNAME, 'custom', *sub, e['filename'])):
             raise ValueError('這個實例中有同名的停用模型，請先處理')
         used = place(e['path'], dst, LIB.data.get('link_mode', 'hardlink'), allow_copy)
         return {'path': dst, 'mode': used, 'fallback': used != LIB.data.get('link_mode', 'hardlink')}
 
-    def install_all(self, root, allow_copy=False):
-        """把倉庫中所有模型裝到某個實例；需要改用複製而還沒同意時，停在第一個並回傳 need_copy"""
-        done, copied, errors = 0, 0, []
+    def install_many(self, ids, root, allow_copy=False):
+        """把選取的倉庫模型裝到某個實例；需要改用複製而還沒同意時，停在第一個並回傳 need_copy"""
+        done, copied, skipped, errors = 0, 0, 0, []
         have = {x['key'] for x in LIB.entries.values() if x.get('location') == root}
-        for e in list(LIB.entries.values()):
-            if e.get('location') != 'repo' or e['key'] in have:
+        for eid in ids:
+            e = LIB.entries.get(eid)
+            if not e or e.get('location') != 'repo' or e['key'] in have:
+                skipped += 1
                 continue
             try:
                 res = self.install(e['id'], root, allow_copy)
                 if res.get('need_copy'):
-                    return {'need_copy': True, 'done': done, 'copied': copied, 'errors': errors}
+                    return {'need_copy': True, 'done': done, 'copied': copied, 'skipped': skipped, 'errors': errors}
                 have.add(e['key'])
                 done += 1
                 if res.get('fallback'):
                     copied += 1
             except Exception as ex:
                 errors.append(f"{e['filename']}：{ex}")
-        return {'done': done, 'copied': copied, 'errors': errors}
+        return {'done': done, 'copied': copied, 'skipped': skipped, 'errors': errors}
+
+    # ---------- 倉庫子資料夾 ----------
+    def _repo(self):
+        repo = LIB.data.get('repo')
+        if not repo or not os.path.isdir(repo):
+            raise ValueError('請先設定倉庫資料夾')
+        return repo
+
+    def _folder_path(self, rel):
+        parts = [p for p in (rel or '').replace('\\', '/').split('/') if p]
+        for p in parts:
+            check_folder_name(p)
+        return os.path.join(self._repo(), *parts), '/'.join(parts)
+
+    def repo_folders(self):
+        """倉庫中所有的分類資料夾（不含模型資料夾本身），用 / 分隔的相對路徑"""
+        repo = LIB.data.get('repo')
+        out = []
+        if not repo or not os.path.isdir(repo):
+            return out
+
+        def walk(base, rel, depth):
+            try:
+                items = sorted(os.scandir(base), key=lambda d: d.name.lower())
+            except OSError:
+                return
+            for d in items:
+                if d.is_dir() and not is_model_dir(d.path):
+                    r = f'{rel}/{d.name}' if rel else d.name
+                    out.append(r)
+                    if depth < 5:
+                        walk(d.path, r, depth + 1)
+        walk(repo, '', 0)
+        return out
+
+    def create_folder(self, parent, name):
+        base, _ = self._folder_path(parent)
+        name = check_folder_name(name)
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            raise ValueError('已經有同名的資料夾或檔案')
+        os.makedirs(path)
+        return self.repo_folders()
+
+    def _repo_in_folder(self, rel):
+        return [e for e in LIB.entries.values() if e.get('location') == 'repo'
+                and (e.get('group') == rel or (e.get('group') or '').startswith(rel + '/'))]
+
+    def rename_folder(self, rel, new_name):
+        old, rel = self._folder_path(rel)
+        if not rel or not os.path.isdir(old):
+            raise ValueError('找不到這個資料夾，請重新掃描')
+        new_name = check_folder_name(new_name)
+        new = os.path.join(os.path.dirname(old), new_name)
+        if os.path.normcase(new) == os.path.normcase(old) and new_name == os.path.basename(old):
+            return {'folders': self.repo_folders(), 'moved': 0, 'errors': []}
+        if os.path.exists(new) and os.path.normcase(new) != os.path.normcase(old):
+            raise ValueError('已經有同名的資料夾或檔案')
+        new_rel = (rel.rsplit('/', 1)[0] + '/' + new_name) if '/' in rel else new_name
+        moves = [(e['key'], new_rel + e['group'][len(rel):]) for e in self._repo_in_folder(rel)]
+        os.rename(old, new)
+        moved, errors = self._sync_installs(moves)
+        return {'folders': self.repo_folders(), 'moved': moved, 'errors': errors}
+
+    def delete_folder(self, rel):
+        path, rel = self._folder_path(rel)
+        if not rel or not os.path.isdir(path):
+            raise ValueError('找不到這個資料夾，請重新掃描')
+        for _, _, files in os.walk(path):
+            if files:
+                raise ValueError('資料夾裡還有檔案，請先把模型移到其他資料夾')
+        shutil.rmtree(path)
+        return self.repo_folders()
+
+    def move_models(self, ids, folder):
+        """把倉庫模型移到另一個子資料夾；已安裝到遊戲的也一起移到相同位置"""
+        base, folder = self._folder_path(folder)
+        os.makedirs(base, exist_ok=True)
+        done, errors, moves = 0, [], []
+        for eid in ids:
+            e = LIB.entries.get(eid)
+            if not e or e.get('location') != 'repo':
+                continue
+            dst = os.path.join(base, e['filename'])
+            if os.path.normcase(os.path.abspath(dst)) == os.path.normcase(os.path.abspath(e['path'])):
+                continue
+            if os.path.exists(dst):
+                errors.append(f"{e['filename']}：目的資料夾已有同名的模型")
+                continue
+            try:
+                shutil.move(e['path'], dst)
+                done += 1
+                moves.append((e['key'], folder))
+            except Exception as ex:
+                errors.append(f"{e['filename']}：{ex}")
+        moved, errs = self._sync_installs(moves)
+        return {'done': done, 'moved_installs': moved, 'errors': errors + errs}
+
+    def _sync_installs(self, moves):
+        """倉庫模型換資料夾後，把各實例 custom 中同一個模型移到對應的子資料夾"""
+        moved, errors = 0, []
+        for key, group in moves:
+            sub = [p for p in group.split('/') if p]
+            for x in list(LIB.entries.values()):
+                if x.get('location') in (None, 'repo') or x['key'] != key or x.get('source') != 'custom':
+                    continue
+                base = os.path.join(x['root'], 'custom') if x['enabled'] else os.path.join(x['root'], DISABLED_DIRNAME, 'custom')
+                dst = os.path.join(base, *sub, x['filename'])
+                if os.path.normcase(dst) == os.path.normcase(x['path']) or not os.path.exists(x['path']):
+                    continue
+                if os.path.exists(dst):
+                    errors.append(f"{x['instance']}：{x['filename']} 的目的位置已有同名模型")
+                    continue
+                try:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.move(x['path'], dst)
+                    moved += 1
+                    p = os.path.dirname(x['path'])  # 清掉留下的空資料夾
+                    while os.path.normcase(p).startswith(os.path.normcase(base) + os.sep):
+                        try:
+                            os.rmdir(p)
+                        except OSError:
+                            break
+                        p = os.path.dirname(p)
+                except Exception as ex:
+                    errors.append(f"{x['instance']}：{x['filename']}：{ex}")
+        return moved, errors
 
     # ---------- 刪除模型（倉庫或遊戲實例中的）----------
     def delete_info(self, eid):
@@ -1361,7 +1500,7 @@ class Api:
                     st = link_state(r['path'], e['path'])
                 except OSError:
                     st = 'copy'
-                r['installs'].append({'root': e['root'], 'instance': e['instance'], 'id': e['id'], 'enabled': e['enabled'], 'link': st})
+                r['installs'].append({'root': e['root'], 'instance': e['instance'], 'id': e['id'], 'enabled': e['enabled'], 'link': st, 'rel': e['rel']})
         out = repo_entries + out
         with LIB.lock:
             LIB.entries = {e['id']: e for e in out}

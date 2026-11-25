@@ -40,6 +40,11 @@
       <h2>位置</h2>
       <div class="chips" id="fLoc"></div>
     </section>
+    <section id="folderSec" hidden>
+      <h2 class="h-act">倉庫資料夾<button class="mini" id="btnNewFolder" title="在最上層新增資料夾">＋ 新增</button></h2>
+      <ul id="folders" class="folders"></ul>
+      <div class="muted small-note">把卡片拖到資料夾上即可移動。安裝到遊戲時會放進同名的子資料夾。</div>
+    </section>
     <section>
       <h2>狀態</h2>
       <div class="chips" id="fStatus">
@@ -78,6 +83,13 @@
       <button class="btn ghost" id="btnBatch" title="為可預覽、還沒有縮圖的模型自動產生縮圖">批次產生縮圖</button>
       <button class="btn" id="btnGame" title="在遊戲中自動切換模型並截圖，做成縮圖（加密模型也適用）">遊戲內截圖</button>
       <span id="count" class="muted"></span>
+    </div>
+    <div id="selBar" hidden>
+      <span class="sel-n">已選 <b id="selN">0</b> 個<span class="muted" id="selNote"></span></span>
+      <button class="btn small ghost" id="selPage">全選本頁</button>
+      <button class="btn small ghost" id="selNone">取消選取</button>
+      <span class="sel-grp">安裝到<select id="selInst"></select><button class="btn small" id="selInstall">安裝</button></span>
+      <span class="sel-grp">移到<select id="selFolder"></select><button class="btn small ghost" id="selMove">移動</button></span>
     </div>
     <div id="grid"></div>
     <div id="pager" hidden></div>

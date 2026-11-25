@@ -90,6 +90,10 @@
     tag: null,
     search: '',
     sort: 'name',
+    folder: null, // null＝不限；''＝倉庫最上層；'a/b'＝倉庫子資料夾（含其下的子資料夾）
+    folders: [],
+    picked: new Set(), // 勾選的模型 id（批量安裝 / 移動）
+    lastPick: null,
   };
 
   const displayName = (e) => (e.user && e.user.display_name) || (e.meta && e.meta.name) || e.filename;
@@ -159,29 +163,9 @@
     for (const r of S.roots) {
       const inst = S.instances.find((i) => i.root === r) || { name: r, is_instance: false };
       const li = document.createElement('li');
-      li.innerHTML = `<span class="nmw"><b title="${esc(r)}">${esc(inst.name)}</b><span class="p" title="${esc(r)}">${esc(r)}</span></span>${S.repo && inst.is_instance ? '<button title="把倉庫中所有模型安裝到這個實例">全裝</button>' : ''}<button title="開啟資料夾">📂</button><button title="從清單移除（不會刪除檔案）">✕</button>`;
+      li.innerHTML = `<span class="nmw"><b title="${esc(r)}">${esc(inst.name)}</b><span class="p" title="${esc(r)}">${esc(r)}</span></span>${S.repo && inst.is_instance ? `<button class="inst-pick" data-root="${esc(r)}">安裝選取</button>` : ''}<button title="開啟資料夾">📂</button><button title="從清單移除（不會刪除檔案）">✕</button>`;
       const btns = [...li.querySelectorAll('button')];
-      if (S.repo && inst.is_instance) {
-        btns.shift().onclick = guard(async () => {
-          const missing = S.entries.filter((e) => e.location === 'repo' && !e.installs.some((i) => i.root === r)).length;
-          if (!missing) { toast('倉庫中的模型都已經安裝在「' + inst.name + '」了'); return; }
-          if (!(await confirmBox('全部安裝', `把倉庫中 ${missing} 個模型安裝到「${inst.name}」？`, { ok: '安裝' }))) return;
-          let res = await api('install_all', r);
-          if (res.need_copy) {
-            const size = S.entries.filter((e) => e.location === 'repo' && !e.installs.some((i) => i.root === r)).reduce((a, e) => a + (e.size || 0), 0);
-            if (await confirmCopy(fmtSize(size))) {
-              const more = await api('install_all', r, true);
-              res = { done: res.done + more.done, copied: res.copied + more.copied, errors: res.errors.concat(more.errors) };
-            } else {
-              toast(`已安裝 ${res.done} 個；其餘的需要改用複製，已取消`);
-              await rescan();
-              return;
-            }
-          }
-          toast(`已安裝 ${res.done} 個${res.copied ? `（其中 ${res.copied} 個用複製）` : ''}${res.errors.length ? `；${res.errors.length} 個失敗：${res.errors[0]}` : ''}`, res.errors.length > 0);
-          await rescan();
-        });
-      }
+      if (S.repo && inst.is_instance) btns.shift().onclick = () => installPicked(r);
       const [bOpen, bDel] = btns;
       bOpen.onclick = guard(() => api('open_dir', r));
       bDel.onclick = guard(async () => {
@@ -192,6 +176,7 @@
       });
       ul.appendChild(li);
     }
+    updateSelUI();
   }
 
   const addRoot = guard(async (path) => {
@@ -233,9 +218,16 @@
     $('btnRescan').disabled = true;
     $('count').textContent = '掃描中…';
     try {
+      // 模型的 id 由路徑決定，移動或改名後會變；用內容識別碼把勾選和選取的模型對回來
+      const keyOf = (id) => { const e = S.entries.find((x) => x.id === id); return e ? e.location + '|' + e.key : null; };
+      const pickedKeys = new Set([...S.picked].map(keyOf).filter(Boolean));
+      const selKey = S.sel ? keyOf(S.sel) : null;
       S.entries = await api('scan');
+      S.folders = await api('repo_folders');
       applyState(await api('get_state'));
-      if (S.sel && !S.entries.some((e) => e.id === S.sel)) S.sel = null;
+      S.picked = new Set(S.entries.filter((e) => pickedKeys.has(e.location + '|' + e.key)).map((e) => e.id));
+      if (selKey && !S.entries.some((e) => e.id === S.sel)) S.sel = (S.entries.find((e) => e.location + '|' + e.key === selKey) || {}).id || null;
+      if (S.folder && !S.folders.includes(S.folder)) S.folder = null;
       if (S.loc !== 'all' && S.loc !== 'repo' && !S.roots.includes(S.loc)) S.loc = 'all';
       renderAll();
     } catch (e) { toast(e.message, true); }
@@ -248,6 +240,7 @@
     const q = S.search.trim().toLowerCase();
     let list = S.entries.filter((e) => {
       if (S.loc !== 'all' && e.location !== S.loc) return false;
+      if (S.folder !== null && !inFolder(e, S.folder)) return false;
       if (S.status === 'enabled' && !e.enabled) return false;
       if (S.status === 'disabled' && e.enabled) return false;
       if (S.kind !== 'all' && e.kind !== S.kind) return false;
@@ -279,7 +272,7 @@
       b.className = 'chip' + (S.loc === v ? ' on' : '');
       b.title = v === 'all' || v === 'repo' ? label : v;
       b.innerHTML = `${esc(label)}<span class="n">${n}</span>`;
-      b.onclick = () => { S.loc = v; renderLoc(); renderGrid(); };
+      b.onclick = () => { S.loc = v; if (v !== 'repo') S.folder = null; renderLoc(); renderFolders(); renderGrid(); };
       box.appendChild(b);
     }
   }
@@ -301,6 +294,165 @@
     }
     $('tagList').innerHTML = tags.map((t) => `<option value="${esc(t)}">`).join('');
   }
+
+  // ---------------- 倉庫子資料夾 ----------------
+  function inFolder(e, f) { return e.location === 'repo' && (f === '' ? !e.group : e.group === f || (e.group || '').startsWith(f + '/')); }
+  function folderLabel(f) { return f ? f.split('/').join(' / ') : '（最上層）'; }
+  function repoPicked() { return S.entries.filter((e) => S.picked.has(e.id) && e.location === 'repo'); }
+
+  function renderFolders() {
+    $('folderSec').hidden = !S.repo;
+    const ul = $('folders');
+    ul.innerHTML = '';
+    if (!S.repo) return;
+    const repoN = S.entries.filter((e) => e.location === 'repo').length;
+    const rows = [[null, '全部', repoN, 0], ['', '（最上層）', S.entries.filter((e) => inFolder(e, '')).length, 0]];
+    for (const f of S.folders) rows.push([f, f.split('/').pop(), S.entries.filter((e) => inFolder(e, f)).length, f.split('/').length]);
+    for (const [f, label, n, depth] of rows) {
+      const li = document.createElement('li');
+      li.className = 'fd' + (S.folder === f && (f !== null || S.loc === 'repo') ? ' on' : '');
+      li.style.paddingLeft = 6 + Math.max(0, depth - 1) * 14 + 'px';
+      li.title = f === null ? '倉庫中所有模型' : folderLabel(f);
+      li.innerHTML = `<span class="fn">${f === null ? '🗃' : '📁'} ${esc(label)}</span><span class="n">${n}</span>${f ? '<span class="fa"><button data-a="sub" title="在這裡新增子資料夾">＋</button><button data-a="ren" title="重新命名">✎</button><button data-a="del" title="刪除資料夾">✕</button></span>' : ''}`;
+      li.onclick = (ev) => {
+        const a = ev.target.closest('button')?.dataset.a;
+        if (a === 'sub') return newFolder(f);
+        if (a === 'ren') return renameFolder(f);
+        if (a === 'del') return deleteFolder(f);
+        S.folder = f; S.loc = 'repo';
+        renderLoc(); renderFolders(); renderGrid();
+      };
+      if (f !== null) {
+        li.ondragover = (ev) => { if (ev.dataTransfer.types.includes('text/ysm-ids')) { ev.preventDefault(); li.classList.add('drop'); } };
+        li.ondragleave = () => li.classList.remove('drop');
+        li.ondrop = (ev) => {
+          ev.preventDefault();
+          li.classList.remove('drop');
+          const ids = JSON.parse(ev.dataTransfer.getData('text/ysm-ids') || '[]');
+          moveModels(ids, f);
+        };
+      }
+      ul.appendChild(li);
+    }
+  }
+
+  const newFolder = guard(async (parent) => {
+    const name = await promptBox('新增資料夾', `在「${folderLabel(parent || '')}」中新增資料夾，名稱：`);
+    if (!name) return;
+    S.folders = await api('create_folder', parent || '', name);
+    renderFolders(); updateSelUI();
+    toast('已新增資料夾：' + name);
+  });
+  $('btnNewFolder').onclick = () => newFolder('');
+
+  const installedIn = (list) => list.reduce((a, e) => a + (e.installs || []).length, 0);
+
+  const renameFolder = guard(async (f) => {
+    const old = f.split('/').pop();
+    const name = await promptBox('重新命名資料夾', `「${folderLabel(f)}」的新名稱：`, old);
+    if (!name || name === old) return;
+    const inside = S.entries.filter((e) => inFolder(e, f));
+    const n = installedIn(inside);
+    if (n && !(await confirmBox('重新命名資料夾', `這個資料夾中的模型有 ${n} 份已安裝到遊戲，遊戲中的檔案也會一起改到新的資料夾，模型 ID 會跟著改變（例如「${old}/角色.ysm」→「${name}/角色.ysm」）。\n\n已經套用在玩家身上的模型可能需要重新選一次。`, { ok: '重新命名' }))) return;
+    const res = await api('rename_folder', f, name);
+    if (S.folder === f || (S.folder || '').startsWith(f + '/')) S.folder = (f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '') + name + (S.folder || '').slice(f.length);
+    toast(`已重新命名${res.moved ? `，遊戲中 ${res.moved} 份也已移動` : ''}${res.errors.length ? `；${res.errors.length} 個問題：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    await rescan();
+  });
+
+  const deleteFolder = guard(async (f) => {
+    if (S.entries.some((e) => inFolder(e, f))) { toast('資料夾裡還有模型，請先移到其他資料夾', true); return; }
+    if (!(await confirmBox('刪除資料夾', `刪除空的資料夾「${folderLabel(f)}」？`, { ok: '刪除', danger: true }))) return;
+    S.folders = await api('delete_folder', f);
+    if (S.folder === f || (S.folder || '').startsWith(f + '/')) S.folder = null;
+    renderFolders(); updateSelUI(); renderGrid();
+    toast('已刪除資料夾');
+  });
+
+  const moveModels = guard(async (ids, folder) => {
+    const list = S.entries.filter((e) => ids.includes(e.id) && e.location === 'repo' && (e.group || '') !== folder);
+    if (!list.length) { toast(ids.length ? '選取的倉庫模型已經在這個資料夾了' : '沒有選取倉庫中的模型'); return; }
+    const n = installedIn(list);
+    if (n && !(await confirmBox('移動模型', `把 ${list.length} 個模型移到「${folderLabel(folder)}」？\n\n其中有 ${n} 份已安裝到遊戲，遊戲中的檔案也會一起移到同名資料夾，模型 ID 會跟著改變（例如「角色.ysm」→「${folder ? folder + '/' : ''}角色.ysm」）。已經套用在玩家身上的模型可能需要重新選一次。`, { ok: '移動' }))) return;
+    const res = await api('move_models', list.map((e) => e.id), folder);
+    toast(`已移動 ${res.done} 個到「${folderLabel(folder)}」${res.moved_installs ? `，遊戲中 ${res.moved_installs} 份也已移動` : ''}${res.errors.length ? `；${res.errors.length} 個問題：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    await rescan();
+  });
+
+  // ---------------- 勾選與批量操作 ----------------
+  function updateSelUI() {
+    const n = S.picked.size;
+    const rp = repoPicked();
+    $('selBar').hidden = n === 0;
+    $('grid').classList.toggle('picking', n > 0);
+    $('selN').textContent = n;
+    $('selNote').textContent = rp.length === n ? '' : `（倉庫中 ${rp.length} 個；只有倉庫的模型能安裝或移動）`;
+    const insts = S.instances.filter((i) => i.is_instance && S.roots.includes(i.root));
+    const keepI = $('selInst').value;
+    $('selInst').innerHTML = insts.map((i) => `<option value="${esc(i.root)}">${esc(i.name)}</option>`).join('') || '<option value="">（沒有遊戲實例）</option>';
+    if (insts.some((i) => i.root === keepI)) $('selInst').value = keepI;
+    const keepF = $('selFolder').value;
+    $('selFolder').innerHTML = ['', ...S.folders].map((f) => `<option value="${esc(f)}">${esc(folderLabel(f))}</option>`).join('') + '<option value="\u0000new">＋ 新資料夾…</option>';
+    if (['', ...S.folders].includes(keepF)) $('selFolder').value = keepF;
+    $('selInstall').disabled = !rp.length || !insts.length;
+    $('selMove').disabled = !rp.length;
+    document.querySelectorAll('.inst-pick').forEach((b) => {
+      b.textContent = rp.length ? `安裝選取（${rp.length}）` : '安裝選取';
+      b.disabled = !rp.length;
+      b.title = rp.length ? `把勾選的 ${rp.length} 個倉庫模型安裝到這個實例` : '先在右邊勾選倉庫中的模型（點卡片左上角，或 Ctrl / Shift + 點擊）';
+    });
+  }
+
+  function togglePick(id, on) {
+    if (on === undefined ? !S.picked.has(id) : on) S.picked.add(id); else S.picked.delete(id);
+  }
+  function refreshPicks() {
+    document.querySelectorAll('#grid .card').forEach((c) => c.classList.toggle('picked', S.picked.has(c.dataset.id)));
+    updateSelUI();
+  }
+
+  const installPicked = guard(async (root) => {
+    const name = instName(root);
+    const rp = repoPicked();
+    const todo = rp.filter((e) => !e.installs.some((i) => i.root === root));
+    if (!rp.length) { toast('請先勾選倉庫中的模型（點卡片左上角的方框，或 Ctrl / Shift + 點擊卡片）'); return; }
+    if (!todo.length) { toast(`選取的模型都已經安裝在「${name}」了`); return; }
+    const skip = rp.length - todo.length;
+    const inSub = todo.filter((e) => e.group).length;
+    if (!(await confirmBox('安裝選取的模型', `把 ${todo.length} 個模型安裝到「${name}」？${skip ? `\n（另外 ${skip} 個已經安裝過，會略過）` : ''}${inSub ? `\n\n其中 ${inSub} 個在倉庫的子資料夾中，會放進遊戲中同名的資料夾。` : ''}`, { ok: '安裝' }))) return;
+    const ids = todo.map((e) => e.id);
+    let res = await api('install_many', ids, root);
+    if (res.need_copy) {
+      if (await confirmCopy(fmtSize(todo.reduce((a, e) => a + (e.size || 0), 0)))) {
+        const more = await api('install_many', ids, root, true);
+        res = { done: res.done + more.done, copied: res.copied + more.copied, errors: res.errors.concat(more.errors) };
+      } else {
+        toast(`已安裝 ${res.done} 個；其餘的需要改用複製，已取消`);
+        await rescan();
+        return;
+      }
+    }
+    toast(`已安裝 ${res.done} 個到「${name}」${res.copied ? `（其中 ${res.copied} 個用複製）` : ''}${res.errors.length ? `；${res.errors.length} 個失敗：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    await rescan();
+  });
+
+  $('selInstall').onclick = () => { if ($('selInst').value) installPicked($('selInst').value); };
+  $('selMove').onclick = guard(async () => {
+    let f = $('selFolder').value;
+    if (f === '\u0000new') {
+      const name = await promptBox('新資料夾', '在倉庫最上層新增資料夾並把選取的模型移進去，名稱：');
+      if (!name) { updateSelUI(); return; }
+      S.folders = await api('create_folder', '', name);
+      f = name.trim();
+    }
+    await moveModels([...S.picked], f);
+  });
+  $('selFolder').onchange = () => { if ($('selFolder').value === '\u0000new') $('selMove').click(); };
+  $('selNone').onclick = () => { S.picked.clear(); refreshPicks(); };
+  $('selPage').onclick = () => { document.querySelectorAll('#grid .card').forEach((c) => S.picked.add(c.dataset.id)); refreshPicks(); };
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && S.picked.size && !document.querySelector('.modal:not([hidden])')) { S.picked.clear(); refreshPicks(); }
+  });
 
   // ---- 分頁 ----
   const PAGE = { size: 48, page: 0, sig: '', reveal: false };
@@ -419,19 +571,47 @@
     for (const it of list) {
       const e = it.e;
       const c = document.createElement('div');
-      c.className = 'card' + (e.id === S.sel ? ' sel' : '') + (e.enabled ? '' : ' off');
+      c.className = 'card' + (e.id === S.sel ? ' sel' : '') + (e.enabled ? '' : ' off') + (S.picked.has(e.id) ? ' picked' : '');
+      c.dataset.id = e.id;
       // 這個版本沒有縮圖時，借用同角色其他版本的
       const th = thumbURL(e) || thumbURL(it.members.find((m) => m.user.thumb) || e);
       const stars = e.user.rating ? '★'.repeat(e.user.rating) : '';
-      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}
+      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="勾選（Ctrl / Shift + 點擊卡片也可以）">✓</span>
           <span class="badge${e.location === 'repo' ? ' repo' : ''}">${e.location === 'repo' ? '倉庫 · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? '<span class="badge lock">加密</span>' : ''}${e.enabled ? '' : '<span class="badge offb">已停用</span>'}${it.members.length > 1 ? `<span class="badge ver" title="同一個角色有 ${it.members.length} 個版本，點開可切換">${it.members.length} 個版本</span>` : ''}
           ${e.location === 'repo' ? `<span class="badge inst">已裝 ${e.installs.length}/${S.instances.filter((i) => i.is_instance).length}</span>` : (S.repo && !e.repo_id ? '<span class="badge norepo">未入庫</span>' : '')}</div>
         <div class="meta"><div class="nm" title="${esc(displayName(e))}">${esc(displayName(e))}</div>
           <div class="au">${esc(authorText(e) || e.filename)}</div>
           ${e.location !== 'repo' && S.roots.length > 1 ? `<div class="au" title="${esc(e.root)}">📁 ${esc(e.instance)}</div>` : ''}
+          ${e.location === 'repo' && e.group && S.folder !== e.group ? `<div class="au" title="倉庫資料夾">📂 ${esc(folderLabel(e.group))}</div>` : ''}
           <div class="stars">${stars}</div>
           <div class="tg">${(e.user.tags || []).slice(0, 4).map((t) => `<span>${esc(t)}</span>`).join('')}</div></div>`;
-      c.onclick = () => { S.sel = e.id; renderGrid(); renderDetail(); };
+      c.onclick = (ev) => {
+        if (ev.shiftKey && S.lastPick) {
+          // 範圍勾選：本頁中從上次勾選的卡片到這張
+          const ids = list.map((x) => x.e.id);
+          const a = ids.indexOf(S.lastPick), b = ids.indexOf(e.id);
+          if (a >= 0 && b >= 0) {
+            for (let i = Math.min(a, b); i <= Math.max(a, b); i++) S.picked.add(ids[i]);
+            refreshPicks();
+            return;
+          }
+        }
+        if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.target.closest('.pick')) {
+          togglePick(e.id);
+          S.lastPick = e.id;
+          refreshPicks();
+          return;
+        }
+        S.sel = e.id; renderGrid(); renderDetail();
+      };
+      if (e.location === 'repo') {
+        c.draggable = true;
+        c.ondragstart = (ev) => {
+          const ids = S.picked.has(e.id) ? [...S.picked] : [e.id];
+          ev.dataTransfer.setData('text/ysm-ids', JSON.stringify(ids));
+          ev.dataTransfer.effectAllowed = 'move';
+        };
+      }
       c.ondblclick = () => { if (e.previewable) openPreview(e); };
       frag.appendChild(c);
     }
@@ -444,6 +624,8 @@
 
   function renderAll() {
     renderLoc();
+    renderFolders();
+    updateSelUI();
     renderRepo();
     renderTags();
     renderGrid();
@@ -1079,7 +1261,11 @@
   const G = { rows: [], running: false };
 
   // YSM 的模型 ID = 相對於 custom 資料夾的路徑（用 /，檔案保留副檔名），例如 "分類/角色.ysm"
-  const defaultModelId = (e) => e.rel || e.filename;
+  // 倉庫模型以「目前選的遊戲實例中實際安裝的位置」為準（倉庫的子資料夾可能和遊戲中不同）
+  const defaultModelId = (e) => {
+    const ins = e.location === 'repo' && $('gInst') ? (e.installs || []).find((i) => i.root === $('gInst').value) : null;
+    return (ins && ins.rel) || e.rel || e.filename;
+  };
   const modelIdOf = (e) => {
     const v = LS.get('ids', {})[e.key];
     // 舊版預設用「檔名去掉副檔名」，那樣的記錄是錯的，忽略
