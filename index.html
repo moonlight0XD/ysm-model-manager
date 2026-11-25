@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YSM 模型預覽器</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand">YSM 模型預覽器</div>
+    <div class="top-actions">
+      <label class="btn" title="選擇模型資料夾">開啟資料夾<input id="pickDir" type="file" webkitdirectory directory multiple hidden></label>
+      <label class="btn" title="選擇 .zip 模型或模型包">開啟 .zip<input id="pickZip" type="file" accept=".zip,.ysm,.7z" multiple hidden></label>
+      <button class="btn ghost" id="btnShot" title="將目前畫面存成 PNG">截圖</button>
+    </div>
+  </header>
+
+  <aside id="left" class="panel">
+    <section>
+      <h2>模型清單</h2>
+      <ul id="modelList" class="list"><li class="empty">尚未載入模型</li></ul>
+    </section>
+    <section id="infoSection" hidden>
+      <h2>模型資訊</h2>
+      <div id="modelInfo"></div>
+    </section>
+    <section id="warnSection" hidden>
+      <h2>訊息</h2>
+      <ul id="warnList" class="warn"></ul>
+    </section>
+  </aside>
+
+  <main id="viewport">
+    <canvas id="canvas"></canvas>
+    <div id="drop" class="drop-hint">
+      <div class="drop-card">
+        <div class="drop-title">把 YSM 模型拖到這裡</div>
+        <div class="drop-sub">支援模型資料夾、.zip、模型包（內含多個模型）<br>2.x（ysm.json）與 1.x 舊版（main.json）格式</div>
+        <div class="drop-note">加密的 .ysm 檔案無法預覽</div>
+      </div>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div id="loading" class="loading" hidden>載入中…</div>
+    <div id="timeline">
+      <button id="btnPlay" class="icon-btn" title="播放 / 暫停（空白鍵）">❚❚</button>
+      <button id="btnRestart" class="icon-btn" title="從頭播放">⟲</button>
+      <input id="seek" type="range" min="0" max="1" step="0.001" value="0">
+      <span id="timeText" class="mono">0.00 / 0.00 s</span>
+    </div>
+  </main>
+
+  <aside id="right" class="panel">
+    <section>
+      <h2>顯示目標</h2>
+      <label class="field"><span>模型</span><select id="selTarget"></select></label>
+      <label class="field"><span>貼圖</span><select id="selTexture"></select></label>
+      <div id="texPreview" class="tex-preview"></div>
+    </section>
+    <section>
+      <h2>動畫</h2>
+      <label class="field"><span>搜尋</span><input id="animFilter" type="text" placeholder="例如 idle、walk、extra"></label>
+      <div id="animList" class="anim-list"></div>
+      <label class="check"><input id="chkParallel" type="checkbox" checked> 疊加並行動畫（parallel / pre_parallel）</label>
+      <label class="check"><input id="chkLoop" type="checkbox"> 強制循環播放</label>
+      <label class="field"><span>速度</span><input id="speed" type="range" min="0" max="2" step="0.05" value="1"><b id="speedVal" class="mono">1.00×</b></label>
+    </section>
+    <section>
+      <h2>模擬狀態</h2>
+      <label class="field"><span>頭部俯仰</span><input id="headPitch" type="range" min="-90" max="90" step="1" value="0"><b class="mono" id="headPitchVal">0°</b></label>
+      <label class="field"><span>頭部轉向</span><input id="headYaw" type="range" min="-80" max="80" step="1" value="0"><b class="mono" id="headYawVal">0°</b></label>
+      <label class="field"><span>移動速度</span><input id="groundSpeed" type="range" min="0" max="8" step="0.1" value="0"><b class="mono" id="groundSpeedVal">0</b></label>
+      <label class="check"><input id="chkSneak" type="checkbox"> 潛行（q.is_sneaking）</label>
+      <label class="check"><input id="chkMainhand" type="checkbox"> 主手持物</label>
+      <label class="check"><input id="chkOffhand" type="checkbox"> 副手持物</label>
+    </section>
+    <section>
+      <h2>檢視</h2>
+      <label class="check"><input id="chkGrid" type="checkbox" checked> 地面格線</label>
+      <label class="check"><input id="chkRotate" type="checkbox"> 自動旋轉</label>
+      <label class="check"><input id="chkLight" type="checkbox" checked> 光影</label>
+      <label class="check"><input id="chkCutout" type="checkbox"> 鏤空模式（all_cutout）</label>
+      <label class="check"><input id="chkWire" type="checkbox"> 線框</label>
+      <label class="field"><span>背景</span><input id="bgColor" type="color" value="#20232a"></label>
+      <div class="row">
+        <button class="btn small" data-view="front">正面</button>
+        <button class="btn small" data-view="back">背面</button>
+        <button class="btn small" data-view="side">側面</button>
+        <button class="btn small" data-view="reset">重設</button>
+      </div>
+    </section>
+    <section>
+      <h2>骨骼</h2>
+      <label class="field"><span>搜尋</span><input id="boneFilter" type="text" placeholder="骨骼名稱"></label>
+      <div id="boneList" class="bone-list"></div>
+    </section>
+  </aside>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="js/molang.js"></script>
+<script src="js/loader.js"></script>
+<script src="js/model.js"></script>
+<script src="js/animator.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+
+# 打包輸出（exe 放在 GitHub Release）
+dist/
+build/
+*.spec
+
+# YSM Shot MOD 的 Gradle 快取、編譯輸出與測試遊戲
+ysmshot-mod/.gradle/
+ysmshot-mod/build/
+ysmshot-mod/run/
+ysmshot-mod/run-data/
+ysmshot-mod/.idea/
+ysmshot-mod/*.iml
+ysmshot-mod/src/generated/
+
+# 只用於本機的工具
+修復PATH.ps1
