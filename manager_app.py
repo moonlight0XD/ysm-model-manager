@@ -29,7 +29,7 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '1.2'
+APP_VERSION = '1.3'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
@@ -1123,6 +1123,42 @@ class Api:
         moved, errors = self._sync_installs(moves)
         return {'folders': self.repo_folders(), 'moved': moved, 'errors': errors}
 
+    def move_folder(self, rel, dest):
+        """把整個子資料夾移到另一個資料夾底下；已安裝到遊戲的模型也照新結構移動"""
+        old, rel = self._folder_path(rel)
+        base, dest = self._folder_path(dest)
+        if not rel or not os.path.isdir(old):
+            raise ValueError('找不到這個資料夾，請重新掃描')
+        if dest == rel or dest.startswith(rel + '/'):
+            raise ValueError(f'不能把「{rel}」移到它自己裡面')
+        name = rel.split('/')[-1]
+        new_rel = f'{dest}/{name}' if dest else name
+        if new_rel == rel:
+            return {'moved': 0, 'errors': []}
+        new = os.path.join(base, name)
+        if os.path.exists(new):
+            raise ValueError(f'目的地已經有名為「{name}」的資料夾或檔案')
+        moves = [(e['key'], new_rel + e['group'][len(rel):]) for e in self._repo_in_folder(rel)]
+        os.makedirs(base, exist_ok=True)
+        shutil.move(old, new)
+        moved, errors = self._sync_installs(moves)
+        return {'moved': moved, 'errors': errors}
+
+    def delete_folder_all(self, rel):
+        """刪除整個資料夾（含裡面的模型）；能用資源回收筒就丟進回收筒。遊戲中已安裝的那份不受影響"""
+        path, rel = self._folder_path(rel)
+        if not rel or not os.path.isdir(path):
+            raise ValueError('找不到這個資料夾，請重新掃描')
+        n = len(self._repo_in_folder(rel))
+        recycled = can_recycle(path)
+        if recycled:
+            send_to_recycle_bin(path)
+        else:
+            shutil.rmtree(path)
+        for e in self._repo_in_folder(rel):
+            LIB.entries.pop(e['id'], None)
+        return {'models': n, 'recycled': recycled}
+
     def delete_folder(self, rel):
         path, rel = self._folder_path(rel)
         if not rel or not os.path.isdir(path):
@@ -1219,6 +1255,21 @@ class Api:
             remove_model(e['path'])
         LIB.entries.pop(eid, None)
         return {'recycled': recycled}
+
+    def delete_many(self, ids):
+        """批量從倉庫刪除（只處理倉庫中的模型；遊戲實例中已安裝的那份不受影響）"""
+        done, recycled, errors = 0, 0, []
+        for eid in ids:
+            e = LIB.entries.get(eid)
+            if not e or e.get('location') != 'repo':
+                continue
+            try:
+                if self.delete_model(eid)['recycled']:
+                    recycled += 1
+                done += 1
+            except Exception as ex:
+                errors.append(f"{e['filename']}：{ex}")
+        return {'done': done, 'recycled': recycled, 'errors': errors}
 
     # ---------- 解除安裝管理器 ----------
     def _bridge_mod_files(self):
@@ -1440,7 +1491,22 @@ class Api:
         return {'done': done, 'linked': linked, 'errors': errors}
 
     def detect_roots(self):
-        return [r for r in detect_roots()]
+        """自動偵測結果，附上實例名稱、啟動器與模型數，方便分辨"""
+        out = []
+        for r in detect_roots():
+            low = r.lower().replace('/', '\\')
+            launcher = ('Prism' if '\\prismlauncher\\' in low else 'CurseForge' if '\\curseforge\\' in low
+                        else 'Modrinth' if 'modrinth' in low else '版本隔離' if '\\.minecraft\\versions\\' in low
+                        else '.minecraft')
+            n = 0
+            try:
+                for d in os.scandir(os.path.join(r, 'custom')):
+                    if d.is_dir() or d.name.lower().endswith(MODEL_EXTS):
+                        n += 1
+            except OSError:
+                pass
+            out.append({'path': r, 'name': instance_name(r), 'launcher': launcher, 'models': n})
+        return out
 
     def pick_folder(self):
         if not self.window:
