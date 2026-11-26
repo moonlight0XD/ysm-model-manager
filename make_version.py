@@ -20,7 +20,7 @@ info = {
     'FileVersion': dotted,
     'InternalName': 'YSM模型管理器',
     'LegalCopyright': 'Copyright (c) moonlight0XD. MIT License.',
-    'OriginalFilename': 'YSM模型管理器.exe',
+    'OriginalFilename': f'YSM模型管理器-v{ver}.exe',
     'ProductName': 'YSM 模型管理器',
     'ProductVersion': ver,
     'Comments': '開源的 Yes Steve Model 模型整理工具 https://github.com/moonlight0XD/ysm-model-manager',
@@ -41,4 +41,6 @@ out = f"""VSVersionInfo(
 )
 """
 open(sys.argv[1], 'w', encoding='utf-8').write(out)
+# 另存純版本號，給 build.bat 拿來命名 exe
+open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), 'version.txt'), 'w', encoding='ascii').write(ver)
 print('version', ver)

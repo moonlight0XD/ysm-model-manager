@@ -5,12 +5,12 @@
 
 一個離線的 Yes Steve Model（YSM）模型工具，分成兩部分：
 
-- **YSM 模型管理器**（Windows 應用程式）：`dist\YSM模型管理器.exe`，用來整理你收藏的模型
+- **YSM 模型管理器**（Windows 應用程式）：`YSM模型管理器-v版本號.exe`（Release 上的檔名是 `YSM-Model-Manager-v版本號.exe`），用來整理你收藏的模型
 - **YSM 模型預覽器**：3D 預覽未加密的模型。可以在管理器上方按「模型預覽器」開啟，也可以直接用瀏覽器開 `index.html`（網頁版）
 
 ## YSM 模型管理器
 
-直接執行 `dist\YSM模型管理器.exe`，不需要安裝 Python。需要 Windows 10/11 內建的 Edge WebView2。
+到 [Releases](https://github.com/moonlight0XD/ysm-model-manager/releases/latest) 下載 exe 直接執行，不需要安裝 Python。需要 Windows 10/11 內建的 Edge WebView2。
 
 1. 第一次開啟會自動偵測遊戲的 `yes_steve_model` 資料夾（官方啟動器、PCL/HMCL 版本隔離、CurseForge、Prism、Modrinth），按「加入」即可。
    也可以按「新增資料夾」選 `.minecraft`、版本或實例資料夾、`yes_steve_model` 或 `custom`。
@@ -115,7 +115,7 @@ exe 的版本資訊（右鍵 →「內容」→「詳細資料」）由 `make_ve
 ## 檔案結構
 
 ```
-dist/YSM模型管理器.exe  打包好的應用程式
+dist/YSM模型管理器-v版本號.exe  打包好的應用程式
 manager_app.py      管理器後端（掃描、資料庫、檔案操作、本機伺服器、視窗）
 manager.html        管理器介面
 css/manager.css     管理器樣式
