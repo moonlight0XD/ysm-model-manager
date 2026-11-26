@@ -41,7 +41,7 @@
   async function addZip(vfs, blob, prefix, warnings, depth = 0) {
     let zip;
     try { zip = await JSZip.loadAsync(blob, { decodeFileName: decodeZipName }); }
-    catch (e) { warnings.push(`無法解壓縮：${prefix || 'zip'}（${e.message}）`); return; }
+    catch (e) { warnings.push(__('無法解壓縮：{0}（{1}）', prefix || 'zip', e.message)); return; }
     const jobs = [];
     zip.forEach((rel, entry) => {
       if (entry.dir) return;
@@ -68,9 +68,9 @@
       const lower = path.toLowerCase();
       if (lower.endsWith('.zip')) await addZip(vfs, file, path.slice(0, -4), warnings);
       else if (lower.endsWith('.ysm')) {
-        warnings.push(`「${basename(path)}」是加密的 .ysm 檔，官方設計上無法還原，無法預覽。請使用資料夾或 .zip 格式的模型。`);
+        warnings.push(__('「{0}」是加密的 .ysm 檔，官方設計上無法還原，無法預覽。請使用資料夾或 .zip 格式的模型。', basename(path)));
       } else if (lower.endsWith('.7z')) {
-        warnings.push(`「${basename(path)}」是 .7z 壓縮檔，請先解壓縮成資料夾後再拖入。`);
+        warnings.push(__('「{0}」是 .7z 壓縮檔，請先解壓縮成資料夾後再拖入。', basename(path)));
       } else vfs.add(path, fileEntry(file));
     }
     return { vfs, warnings };
@@ -138,7 +138,7 @@
     const e = vfs.get(path);
     if (!e) return null;
     try { return parseJSONLoose(await e.text()); }
-    catch (err) { throw new Error(`JSON 解析失敗：${path}（${err.message}）`); }
+    catch (err) { throw new Error(__('JSON 解析失敗：{0}（{1}）', path, err.message)); }
   }
 
   function isGeometry(json) {
@@ -190,9 +190,9 @@
     const pngs = under.filter((p) => /\.png$/i.test(p));
     const animFiles = under.filter((p) => /\.animation\.json$/i.test(p));
     const info = {
-      id: root || '(根目錄)',
+      id: root || __('(根目錄)'),
       root, kind,
-      name: basename(root) || '模型',
+      name: basename(root) || __('模型'),
       meta: null, properties: {}, targets: [], warnings,
       allTextures: pngs, allAnimations: animFiles,
     };
@@ -211,13 +211,13 @@
       const animKeysFor = (keys) => animList.filter((a) => keys.includes(a.key));
       if (model.main) {
         info.targets.push({
-          key: 'main', label: '玩家模型（main）', modelPath: join(root, model.main), textures: texList,
+          key: 'main', label: __('玩家模型（main）'), modelPath: join(root, model.main), textures: texList,
           animations: animList.filter((a) => !['arm', 'fp_arm'].includes(a.key)),
         });
       }
       if (model.arm) {
         info.targets.push({
-          key: 'arm', label: '第一人稱手臂（arm）', modelPath: join(root, model.arm), textures: texList,
+          key: 'arm', label: __('第一人稱手臂（arm）'), modelPath: join(root, model.arm), textures: texList,
           animations: animKeysFor(['arm', 'fp_arm']),
         });
       }
@@ -232,7 +232,7 @@
           const m = Array.isArray(e.match) ? e.match.join(', ') : (e.match || '');
           const tex = typeof e.texture === 'string' ? [join(root, e.texture)] : (Array.isArray(e.texture) ? e.texture.map((t) => join(root, typeof t === 'string' ? t : t.uv)) : []);
           info.targets.push({
-            key: label + i, label: `${label === 'projectile' ? '投射物' : '載具'}：${m || basename(e.model)}`,
+            key: label + i, label: `${label === 'projectile' ? __('投射物') : __('載具')}：${m || basename(e.model)}`,
             modelPath: join(root, e.model), textures: tex,
             animations: e.animation ? [{ key: label, path: join(root, e.animation) }] : [],
           });
@@ -268,11 +268,11 @@
           if (j.name) info.name = j.name;
         } catch (e) { warnings.push(e.message); }
       }
-      info.targets.push({ key: 'main', label: '玩家模型（main）', modelPath: join(root, 'main.json'), textures, animations: anims.filter((a) => !['arm', 'fp.arm', 'arrow'].includes(a.key)) });
-      if (has('arm.json')) info.targets.push({ key: 'arm', label: '第一人稱手臂（arm）', modelPath: join(root, 'arm.json'), textures, animations: anims.filter((a) => a.key === 'arm' || a.key === 'fp.arm') });
+      info.targets.push({ key: 'main', label: __('玩家模型（main）'), modelPath: join(root, 'main.json'), textures, animations: anims.filter((a) => !['arm', 'fp.arm', 'arrow'].includes(a.key)) });
+      if (has('arm.json')) info.targets.push({ key: 'arm', label: __('第一人稱手臂（arm）'), modelPath: join(root, 'arm.json'), textures, animations: anims.filter((a) => a.key === 'arm' || a.key === 'fp.arm') });
       if (has('arrow.json')) {
         const at = pngs.filter((p) => basename(p).toLowerCase() === 'arrow.png');
-        info.targets.push({ key: 'arrow', label: '箭矢（arrow）', modelPath: join(root, 'arrow.json'), textures: at.length ? at : textures, animations: anims.filter((a) => a.key === 'arrow') });
+        info.targets.push({ key: 'arrow', label: __('箭矢（arrow）'), modelPath: join(root, 'arrow.json'), textures: at.length ? at : textures, animations: anims.filter((a) => a.key === 'arrow') });
       }
     }
 
@@ -284,19 +284,19 @@
       if (['ysm.json', 'info.json', 'ysm-pack.json'].includes(lb) || /(^|\/)lang\//.test(rel(p)) || /controller/i.test(p)) continue;
       try {
         const j = await readJSON(vfs, p);
-        if (isGeometry(j)) info.targets.push({ key: 'other:' + p, label: '其他幾何：' + rel(p), modelPath: p, textures: info.allTextures, animations: [] });
+        if (isGeometry(j)) info.targets.push({ key: 'other:' + p, label: __('其他幾何：') + rel(p), modelPath: p, textures: info.allTextures, animations: [] });
       } catch (e) { /* 略過 */ }
     }
 
     // 驗證貼圖存在
     for (const t of info.targets) {
       const missing = t.textures.filter((x) => !vfs.has(x));
-      if (missing.length) warnings.push(`找不到貼圖：${missing.map(rel).join(', ')}`);
+      if (missing.length) warnings.push(__('找不到貼圖：{0}', missing.map(rel).join(', ')));
       t.textures = t.textures.filter((x) => vfs.has(x));
       if (!t.textures.length) t.textures = info.allTextures.slice();
       t.animations = t.animations.filter((a) => vfs.has(a.path));
     }
-    if (!info.targets.length) warnings.push('找不到任何模型幾何檔。');
+    if (!info.targets.length) warnings.push(__('找不到任何模型幾何檔。'));
     return info;
   }
 

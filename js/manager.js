@@ -1,6 +1,7 @@
 /* YSM 模型管理器 — 介面 */
 (function () {
   'use strict';
+  I18N.translatePage();
   const $ = (id) => document.getElementById(id);
   const TOKEN = new URLSearchParams(location.search).get('t') || '';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -10,7 +11,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args }),
     });
     const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '發生錯誤');
+    if (!j.ok) throw new Error(j.error || __('發生錯誤'));
     return j.result;
   }
   const tq = 't=' + encodeURIComponent(TOKEN);
@@ -29,7 +30,7 @@
   // ---------------- 確認視窗 ----------------
   // body 是 HTML（呼叫端要自己 esc）；input 有值時顯示文字輸入框。回傳 { ok, remember, value }
   let askResolve = null;
-  function ask({ title, body, ok = '確定', cancel = '取消', danger = false, remember = '', input = null }) {
+  function ask({ title, body, ok = __('確定'), cancel = __('取消'), danger = false, remember = '', input = null }) {
     return new Promise((resolve) => {
       if (askResolve) askResolve({ ok: false, remember: false, value: '' });
       askResolve = resolve;
@@ -67,10 +68,10 @@
   async function confirmCopy(sizeText) {
     if (S.settings && S.settings.confirm_copy === false) return true;
     const r = await ask({
-      title: '無法使用硬連結',
-      body: `倉庫和這個遊戲實例不在同一個 NTFS 磁碟（例如倉庫在 exFAT 格式的外接硬碟、遊戲在 C:），所以沒辦法用硬連結。\n\n要改用<b>複製</b>嗎？複製會在遊戲資料夾多佔一份空間${sizeText ? `（約 ${esc(sizeText)}）` : ''}。`,
-      ok: '改用複製',
-      remember: '以後不要再問，直接複製（可在設定中改回）',
+      title: __('無法使用硬連結'),
+      body: `${__('倉庫和這個遊戲實例不在同一個 NTFS 磁碟（例如倉庫在 exFAT 格式的外接硬碟、遊戲在 C:），所以沒辦法用硬連結。\n\n要改用<b>複製</b>嗎？複製會在遊戲資料夾多佔一份空間{0}。', sizeText ? __('（約 {0}）', esc(sizeText)) : '')}`,
+      ok: __('改用複製'),
+      remember: __('以後不要再問，直接複製（可在設定中改回）'),
     });
     if (r.remember) S.settings = await api('set_settings', { confirm_copy: false });
     return r.ok;
@@ -100,9 +101,9 @@
   const displayName = (e) => (e.user && e.user.display_name) || (e.meta && e.meta.name) || e.filename;
   const authorText = (e) => ((e.meta && e.meta.authors) || []).map((a) => a.name).filter(Boolean).join('、');
   const thumbURL = (e) => (e.user && e.user.thumb ? `/api/thumb/${encodeURIComponent(e.user.thumb)}?${tq}` : '');
-  const kindLabel = { ysm: '.ysm', folder: '資料夾', zip: 'zip', '7z': '7z' };
+  const kindLabel = { ysm: '.ysm', folder: __('資料夾'), zip: 'zip', '7z': '7z' };
   const fmtSize = (n) => { const u = ['B', 'KB', 'MB', 'GB']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + ' ' + u[i]; };
-  const fmtDate = (t) => new Date(t * 1000).toLocaleString('zh-TW', { hour12: false });
+  const fmtDate = (t) => new Date(t * 1000).toLocaleString(I18N.locale, { hour12: false });
 
   // ---------------- 資料夾 ----------------
   let firstState = true;
@@ -123,36 +124,36 @@
   function renderRepo() {
     const box = $('repoBox');
     if (!S.repo) {
-      box.innerHTML = '<span class="st">尚未設定。倉庫是集中存放所有模型的資料夾，再從這裡安裝到各個遊戲實例。</span>';
+      box.innerHTML = `<span class="st">${__('尚未設定。倉庫是集中存放所有模型的資料夾，再從這裡安裝到各個遊戲實例。')}</span>`;
     } else {
       const n = S.entries.filter((e) => e.location === 'repo').length;
-      box.innerHTML = `<div title="${esc(S.repo)}">${esc(S.repo)}</div><div class="st">${n} 個模型</div>`;
+      box.innerHTML = `<div title="${esc(S.repo)}">${esc(S.repo)}</div><div class="st">${__('{0} 個模型', n)}</div>`;
     }
-    $('btnRepo').textContent = S.repo ? '更換倉庫資料夾' : '設定倉庫資料夾';
+    $('btnRepo').textContent = S.repo ? __('更換倉庫資料夾') : __('設定倉庫資料夾');
     $('btnImportAll').disabled = !S.repo;
   }
 
   $('btnRepo').onclick = guard(async () => {
     const r = await api('pick_folder');
     let path = r && r.path;
-    if (r && r.unsupported) path = await promptBox('倉庫資料夾', '輸入倉庫資料夾路徑（例如 D:\\YSM倉庫）：', S.repo);
+    if (r && r.unsupported) path = await promptBox(__('倉庫資料夾'), __('輸入倉庫資料夾路徑（例如 D:\\YSM倉庫）：'), S.repo);
     if (!path) return;
     applyState(await api('set_repo', path));
-    toast('倉庫：' + S.repo);
+    toast(__('倉庫：') + S.repo);
     await rescan();
   });
   $('linkMode').onchange = guard(async (ev) => {
     applyState(await api('set_link_mode', ev.target.value));
-    toast(S.linkMode === 'hardlink' ? '安裝方式：硬連結（倉庫與遊戲需在同一磁碟）' : '安裝方式：複製');
+    toast(S.linkMode === 'hardlink' ? __('安裝方式：硬連結（倉庫與遊戲需在同一磁碟）') : __('安裝方式：複製'));
   });
   $('btnImportAll').onclick = guard(async () => {
     const n = S.entries.filter((e) => e.location !== 'repo' && !e.repo_id).length;
-    if (!n) { toast('實例中的模型都已經在倉庫裡了'); return; }
-    if (!(await confirmBox('加入倉庫', `把 ${n} 個還不在倉庫的模型複製進倉庫？${S.linkMode === 'hardlink' ? '\n\n完成後，實例中的檔案會換成指向倉庫的硬連結，不會多佔空間。' : ''}\n原本的模型不會被刪除。`, { ok: '加入倉庫' }))) return;
+    if (!n) { toast(__('實例中的模型都已經在倉庫裡了')); return; }
+    if (!(await confirmBox(__('加入倉庫'), __('把 {0} 個還不在倉庫的模型複製進倉庫？{1}\n原本的模型不會被刪除。', n, S.linkMode === 'hardlink' ? __('\n\n完成後，實例中的檔案會換成指向倉庫的硬連結，不會多佔空間。') : ''), { ok: __('加入倉庫') }))) return;
     $('btnImportAll').disabled = true;
     try {
       const res = await api('import_all');
-      toast(`已加入 ${res.done} 個模型${res.linked ? `，${res.linked} 個已換成硬連結` : ''}${res.errors.length ? `；${res.errors.length} 個失敗：${res.errors[0]}` : ''}`, res.errors.length > 0);
+      toast(__('已加入 {0} 個模型{1}{2}', res.done, res.linked ? __('，{0} 個已換成硬連結', res.linked) : '', res.errors.length ? __('；{0} 個失敗：{1}', res.errors.length, res.errors[0]) : ''), res.errors.length > 0);
     } finally { $('btnImportAll').disabled = false; }
     await rescan();
   });
@@ -160,17 +161,17 @@
   function renderRoots() {
     const ul = $('roots');
     ul.innerHTML = '';
-    if (!S.roots.length) ul.innerHTML = '<li><span class="p muted">尚未加入資料夾</span></li>';
+    if (!S.roots.length) ul.innerHTML = `<li><span class="p muted">${__('尚未加入資料夾')}</span></li>`;
     for (const r of S.roots) {
       const inst = S.instances.find((i) => i.root === r) || { name: r, is_instance: false };
       const li = document.createElement('li');
-      li.innerHTML = `<span class="nmw"><b title="${esc(r)}">${esc(inst.name)}</b><span class="p" title="${esc(r)}">${esc(r)}</span></span>${S.repo && inst.is_instance ? `<button class="inst-pick" data-root="${esc(r)}">安裝選取</button>` : ''}<button title="開啟資料夾">📂</button><button title="從清單移除（不會刪除檔案）">✕</button>`;
+      li.innerHTML = `<span class="nmw"><b title="${esc(r)}">${esc(inst.name)}</b><span class="p" title="${esc(r)}">${esc(r)}</span></span>${S.repo && inst.is_instance ? `<button class="inst-pick" data-root="${esc(r)}">${__('安裝選取')}</button>` : ''}<button title="${__('開啟資料夾')}">📂</button><button title="${__('從清單移除（不會刪除檔案）')}">✕</button>`;
       const btns = [...li.querySelectorAll('button')];
       if (S.repo && inst.is_instance) btns.shift().onclick = () => installPicked(r);
       const [bOpen, bDel] = btns;
       bOpen.onclick = guard(() => api('open_dir', r));
       bDel.onclick = guard(async () => {
-        if (!(await confirmBox('從清單移除', '從清單移除這個資料夾？\n（只是不再顯示，不會刪除任何檔案）\n\n' + r, { ok: '移除' }))) return;
+        if (!(await confirmBox(__('從清單移除'), __('從清單移除這個資料夾？\n（只是不再顯示，不會刪除任何檔案）\n\n') + r, { ok: __('移除') }))) return;
         S.roots = (await api('remove_root', r)).roots;
         renderRoots();
         await rescan();
@@ -184,38 +185,38 @@
     const res = await api('add_root', path);
     S.roots = res.roots;
     renderRoots();
-    toast('已加入：' + res.root);
+    toast(__('已加入：') + res.root);
     await rescan();
   });
 
   $('btnAddRoot').onclick = guard(async () => {
     const r = await api('pick_folder');
     let path = r && r.path;
-    if (r && r.unsupported) path = await promptBox('新增資料夾', '輸入資料夾路徑（.minecraft、實例資料夾、yes_steve_model 或 custom）：');
+    if (r && r.unsupported) path = await promptBox(__('新增資料夾'), __('輸入資料夾路徑（.minecraft、實例資料夾、yes_steve_model 或 custom）：'));
     if (path) await addRoot(path);
   });
 
   $('btnDetect').onclick = guard(async () => {
     const box = $('detectBox');
     box.hidden = false;
-    box.innerHTML = '<span class="muted">搜尋中…</span>';
+    box.innerHTML = `<span class="muted">${__('搜尋中…')}</span>`;
     const found = (await api('detect_roots')).filter((it) => !S.roots.some((r) => r.toLowerCase() === it.path.toLowerCase()));
-    if (!found.length) { box.innerHTML = '<span class="muted">沒有找到新的 yes_steve_model 資料夾。可以用「新增資料夾」手動選擇。</span>'; return; }
-    box.innerHTML = `<div class="d-head"><span class="muted">找到 ${found.length} 個</span>${found.length > 1 ? '<button class="btn small ghost" id="detAll">全部加入</button>' : ''}<button class="btn small ghost" id="detClose" title="關閉">✕</button></div>`;
+    if (!found.length) { box.innerHTML = `<span class="muted">${__('沒有找到新的 yes_steve_model 資料夾。可以用「新增資料夾」手動選擇。')}</span>`; return; }
+    box.innerHTML = `<div class="d-head"><span class="muted">${__('找到 {0} 個', found.length)}</span>${found.length > 1 ? `<button class="btn small ghost" id="detAll">${__('全部加入')}</button>` : ''}<button class="btn small ghost" id="detClose" title="${__('關閉')}">✕</button></div>`;
     $('detClose').onclick = () => { box.hidden = true; };
     if ($('detAll')) $('detAll').onclick = guard(async () => {
       box.hidden = true;
       for (const it of found) await api('add_root', it.path);
       S.roots = (await api('get_state')).roots;
       renderRoots();
-      toast(`已加入 ${found.length} 個遊戲實例`);
+      toast(__('已加入 {0} 個遊戲實例', found.length));
       await rescan();
     });
     for (const it of found) {
       const d = document.createElement('div');
       d.className = 'd';
       d.title = it.path;
-      d.innerHTML = `<span class="dn"><b>${esc(it.name)}</b><small>${esc(it.launcher)} · ${it.models ? it.models + ' 個模型' : '沒有模型'}</small></span><button class="btn small">加入</button>`;
+      d.innerHTML = `<span class="dn"><b>${esc(it.name)}</b><small>${esc(it.launcher)} · ${it.models ? __('{0} 個模型', it.models) : __('沒有模型')}</small></span><button class="btn small">${__('加入')}</button>`;
       d.querySelector('button').onclick = async () => { d.remove(); await addRoot(it.path); if (!box.querySelector('.d')) box.hidden = true; };
       box.appendChild(d);
     }
@@ -227,7 +228,7 @@
     if (scanning) return;
     scanning = true;
     $('btnRescan').disabled = true;
-    $('count').textContent = '掃描中…';
+    $('count').textContent = __('掃描中…');
     try {
       // 模型的 id 由路徑決定，移動或改名後會變；用內容識別碼把勾選和選取的模型對回來
       const keyOf = (id) => { const e = S.entries.find((x) => x.id === id); return e ? e.location + '|' + e.key : null; };
@@ -261,7 +262,7 @@
     const insts = e.location === 'repo'
       ? (e.installs || []).map((i) => i.instance || instName(i.root))
       : S.entries.filter((x) => x.location !== 'repo' && x.key === e.key).map((x) => instName(x.root));
-    return [...(e.location === 'repo' ? ['倉庫'] : []), ...new Set(insts)];
+    return [...(e.location === 'repo' ? [__('倉庫')] : []), ...new Set(insts)];
   }
   function filtered() {
     const q = S.search.trim().toLowerCase();
@@ -292,8 +293,8 @@
 
   function renderLoc() {
     const box = $('fLoc');
-    const opts = [['all', '全部', S.entries.filter((e) => !dupOfRepo(e)).length]];
-    if (S.repo) opts.push(['repo', '倉庫', S.entries.filter((e) => e.location === 'repo').length]);
+    const opts = [['all', __('全部'), S.entries.filter((e) => !dupOfRepo(e)).length]];
+    if (S.repo) opts.push(['repo', __('倉庫'), S.entries.filter((e) => e.location === 'repo').length]);
     for (const r of S.roots) opts.push([r, instName(r), S.entries.filter((e) => e.location === r).length]);
     box.innerHTML = '';
     for (const [v, label, n] of opts) {
@@ -311,7 +312,7 @@
     for (const e of S.entries) for (const t of e.user.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
     const box = $('fTags');
     box.innerHTML = '';
-    if (!counts.size) { box.innerHTML = '<span class="muted">尚無標籤</span>'; S.tag = null; }
+    if (!counts.size) { box.innerHTML = `<span class="muted">${__('尚無標籤')}</span>`; S.tag = null; }
     const tags = [...counts.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
     if (S.tag && !counts.has(S.tag)) S.tag = null;
     for (const t of tags) {
@@ -350,7 +351,7 @@
     const g = e.group || '';
     return g === f || (modelFolders().has(g) && parentOf(g) === f);
   }
-  function folderLabel(f) { return f ? f.split('/').join(' / ') : '（最上層）'; }
+  function folderLabel(f) { return f ? f.split('/').join(' / ') : __('（最上層）'); }
   function repoPicked() { return S.entries.filter((e) => S.picked.has(e.id) && e.location === 'repo'); }
   // 批量安裝 / 刪除的對象：勾選的倉庫模型，加上勾選資料夾（含子資料夾）中的所有模型
   function pickedModels() {
@@ -364,37 +365,37 @@
   }
 
   const newFolder = guard(async (parent) => {
-    const name = await promptBox('新增資料夾', `在「${folderLabel(parent || '')}」中新增資料夾，名稱：`);
+    const name = await promptBox(__('新增資料夾'), __('在「{0}」中新增資料夾，名稱：', folderLabel(parent || '')));
     if (!name) return;
     S.folders = await api('create_folder', parent || '', name);
     updateSelUI(); renderGrid();
-    toast('已新增資料夾：' + name);
+    toast(__('已新增資料夾：') + name);
   });
 
   const installedIn = (list) => list.reduce((a, e) => a + (e.installs || []).length, 0);
 
   const renameFolder = guard(async (f) => {
     const old = f.split('/').pop();
-    const name = await promptBox('重新命名資料夾', `「${folderLabel(f)}」的新名稱：`, old);
+    const name = await promptBox(__('重新命名資料夾'), __('「{0}」的新名稱：', folderLabel(f)), old);
     if (!name || name === old) return;
     const inside = S.entries.filter((e) => inFolder(e, f));
     const n = installedIn(inside);
-    if (n && !(await confirmBox('重新命名資料夾', `這個資料夾中的模型有 ${n} 份已安裝到遊戲，遊戲中的檔案也會一起改到新的資料夾，模型 ID 會跟著改變（例如「${old}/角色.ysm」→「${name}/角色.ysm」）。\n\n已經套用在玩家身上的模型可能需要重新選一次。`, { ok: '重新命名' }))) return;
+    if (n && !(await confirmBox(__('重新命名資料夾'), __('這個資料夾中的模型有 {0} 份已安裝到遊戲，遊戲中的檔案也會一起改到新的資料夾，模型 ID 會跟著改變（例如「{1}/角色.ysm」→「{2}/角色.ysm」）。\n\n已經套用在玩家身上的模型可能需要重新選一次。', n, old, name), { ok: __('重新命名') }))) return;
     const res = await api('rename_folder', f, name);
     if (S.folder === f || (S.folder || '').startsWith(f + '/')) S.folder = (f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '') + name + (S.folder || '').slice(f.length);
-    toast(`已重新命名${res.moved ? `，遊戲中 ${res.moved} 份也已移動` : ''}${res.errors.length ? `；${res.errors.length} 個問題：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    toast(__('已重新命名{0}{1}', res.moved ? __('，遊戲中 {0} 份也已移動', res.moved) : '', res.errors.length ? __('；{0} 個問題：{1}', res.errors.length, res.errors[0]) : ''), res.errors.length > 0);
     await rescan();
   });
 
   const deleteFolder = guard(async (f) => {
     const inside = S.entries.filter((e) => inFolder(e, f));
     if (!inside.length) {
-      if (!(await confirmBox('刪除資料夾', `刪除空的資料夾「${folderLabel(f)}」？`, { ok: '刪除', danger: true }))) return;
+      if (!(await confirmBox(__('刪除資料夾'), __('刪除空的資料夾「{0}」？', folderLabel(f)), { ok: __('刪除'), danger: true }))) return;
       S.folders = await api('delete_folder', f);
     } else {
       if (!(await confirmDelete({ folders: [f], models: inside }))) return;
       const res = await api('delete_folder_all', f);
-      toast(`已刪除資料夾「${folderLabel(f)}」與其中 ${res.models} 個模型${res.recycled ? '（已移到資源回收筒）' : '（永久刪除）'}`);
+      toast(__('已刪除資料夾「{0}」與其中 {1} 個模型{2}', folderLabel(f), res.models, res.recycled ? __('（已移到資源回收筒）') : __('（永久刪除）')));
     }
     S.pickedFolders.delete(f);
     if (S.folder === f || (S.folder || '').startsWith(f + '/')) S.folder = parentOf(f);
@@ -407,22 +408,22 @@
     const installed = models.filter((e) => e.installs && e.installs.length).length;
     const info = models.length ? await api('delete_info', models[0].id) : { recycle: true };
     const fate = info.recycle
-      ? '檔案會移到<b>資源回收筒</b>，需要時可以還原。'
-      : '<span class="warn">倉庫所在的磁碟沒有資源回收筒，刪除後無法復原！</span>';
+      ? `${__('檔案會移到<b>資源回收筒</b>，需要時可以還原。')}`
+      : `<span class="warn">${__('倉庫所在的磁碟沒有資源回收筒，刪除後無法復原！')}</span>`;
     const lines = folders.map((f) => '📁 ' + esc(folderLabel(f)))
       .concat(models.filter((e) => !folders.some((f) => inFolder(e, f))).map((e) => '・' + esc(displayName(e))));
-    const names = lines.slice(0, 10).join('\n') + (lines.length > 10 ? `\n…還有 ${lines.length - 10} 項` : '');
-    const what = [folders.length ? `${folders.length} 個資料夾` : '', `${models.length} 個模型`].filter(Boolean).join('、');
+    const names = lines.slice(0, 10).join('\n') + (lines.length > 10 ? `\n${__('…還有 {0} 項', lines.length - 10)}` : '');
+    const what = [folders.length ? __('{0} 個資料夾', folders.length) : '', __('{0} 個模型', models.length)].filter(Boolean).join('、');
     const r1 = await ask({
-      title: '從倉庫刪除',
-      body: `要從倉庫刪除 <b>${what}</b> 嗎？（共 ${fmtSize(size)}）${folders.length ? '\n資料夾會連同裡面所有的子資料夾和模型一起刪除。' : ''}\n\n${names}`
-        + (installed ? `\n\n其中 ${installed} 個已安裝到遊戲實例，<b>實例中的那份不會被刪除</b>，遊戲仍可使用。` : '')
+      title: __('從倉庫刪除'),
+      body: `${__('要從倉庫刪除 <b>{0}</b> 嗎？（共 {1}）{2}\n\n{3}', what, fmtSize(size), folders.length ? __('\n資料夾會連同裡面所有的子資料夾和模型一起刪除。') : '', names)}`
+        + (installed ? `\n\n${__('其中 {0} 個已安裝到遊戲實例，<b>實例中的那份不會被刪除</b>，遊戲仍可使用。', installed)}` : '')
         + `\n\n${fate}`,
-      ok: '刪除', danger: true,
+      ok: __('刪除'), danger: true,
     });
     if (!r1.ok) return false;
     if (!S.settings || S.settings.confirm_delete_twice !== false) {
-      const r2 = await ask({ title: '再次確認', body: `真的要從倉庫刪除 <b>${what}</b> 嗎？\n\n${fate}`, ok: '確定刪除', cancel: '不要刪除', danger: true });
+      const r2 = await ask({ title: __('再次確認'), body: `${__('真的要從倉庫刪除 <b>{0}</b> 嗎？\n\n{1}', what, fate)}`, ok: __('確定刪除'), cancel: __('不要刪除'), danger: true });
       if (!r2.ok) return false;
     }
     return true;
@@ -430,11 +431,11 @@
 
   const moveModels = guard(async (ids, folder) => {
     const list = S.entries.filter((e) => ids.includes(e.id) && e.location === 'repo' && (e.group || '') !== folder);
-    if (!list.length) { toast(ids.length ? '選取的倉庫模型已經在這個資料夾了' : '沒有選取倉庫中的模型'); return; }
+    if (!list.length) { toast(ids.length ? __('選取的倉庫模型已經在這個資料夾了') : __('沒有選取倉庫中的模型')); return; }
     const n = installedIn(list);
-    if (n && !(await confirmBox('移動模型', `把 ${list.length} 個模型移到「${folderLabel(folder)}」？\n\n其中有 ${n} 份已安裝到遊戲，遊戲中的檔案也會一起移到同名資料夾，模型 ID 會跟著改變（例如「角色.ysm」→「${folder ? folder + '/' : ''}角色.ysm」）。已經套用在玩家身上的模型可能需要重新選一次。`, { ok: '移動' }))) return;
+    if (n && !(await confirmBox(__('移動模型'), __('把 {0} 個模型移到「{1}」？\n\n其中有 {2} 份已安裝到遊戲，遊戲中的檔案也會一起移到同名資料夾，模型 ID 會跟著改變（例如「角色.ysm」→「{3}角色.ysm」）。已經套用在玩家身上的模型可能需要重新選一次。', list.length, folderLabel(folder), n, folder ? folder + '/' : ''), { ok: __('移動') }))) return;
     const res = await api('move_models', list.map((e) => e.id), folder);
-    toast(`已移動 ${res.done} 個到「${folderLabel(folder)}」${res.moved_installs ? `，遊戲中 ${res.moved_installs} 份也已移動` : ''}${res.errors.length ? `；${res.errors.length} 個問題：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    toast(__('已移動 {0} 個到「{1}」{2}{3}', res.done, folderLabel(folder), res.moved_installs ? __('，遊戲中 {0} 份也已移動', res.moved_installs) : '', res.errors.length ? __('；{0} 個問題：{1}', res.errors.length, res.errors[0]) : ''), res.errors.length > 0);
     await rescan();
   });
 
@@ -459,21 +460,21 @@
     box.hidden = !(S.repo && S.loc === 'repo' && S.folder !== null);
     if (box.hidden) return;
     const parts = S.folder ? S.folder.split('/') : [];
-    const items = [['', '🗃 倉庫']].concat(parts.map((p, i) => [parts.slice(0, i + 1).join('/'), p]));
+    const items = [['', __('🗃 倉庫')]].concat(parts.map((p, i) => [parts.slice(0, i + 1).join('/'), p]));
     box.innerHTML = '';
     items.forEach(([f, label], i) => {
       if (i) box.insertAdjacentHTML('beforeend', '<span class="sep">›</span>');
       const b = document.createElement('button');
       b.className = 'crumb' + (i === items.length - 1 ? ' on' : '');
       b.textContent = label;
-      b.title = i === items.length - 1 ? '目前位置' : '回到這一層（也可以把模型拖到這裡）';
+      b.title = i === items.length - 1 ? __('目前位置') : __('回到這一層（也可以把模型拖到這裡）');
       b.onclick = () => openFolder(f);
       makeDropTarget(b, f);
       box.appendChild(b);
     });
     box.insertAdjacentHTML('beforeend', S.search.trim()
-      ? '<span class="muted crumb-note">搜尋中：包含所有子資料夾</span>'
-      : '<span class="muted crumb-note">在空白處按右鍵可新增資料夾</span>');
+      ? `<span class="muted crumb-note">${__('搜尋中：包含所有子資料夾')}</span>`
+      : `<span class="muted crumb-note">${__('在空白處按右鍵可新增資料夾')}</span>`);
   }
 
   function folderCards(frag) {
@@ -483,14 +484,14 @@
       const subs = childFolders(f).length;
       const c = document.createElement('div');
       c.className = 'card folder-card' + (S.pickedFolders.has(f) ? ' picked' : '');
-      c.title = `${folderLabel(f)}\n點一下開啟；右鍵可重新命名、刪除；可以把模型拖到這裡`;
+      c.title = __('{0}\n點一下開啟；右鍵可重新命名、刪除；可以把模型拖到這裡', folderLabel(f));
       c.innerHTML = `<div class="thumb fthumb">${thumbs.length
         ? `<div class="mosaic n${thumbs.length}">${thumbs.map((t) => `<i style="background-image:url('${t}')"></i>`).join('')}</div>`
         : '<span class="ficon">📁</span>'}
-          <span class="badge fbadge">📁 資料夾</span>
-          <span class="pick" title="勾選（也可以 Ctrl / Shift + 點擊，或在空白處拖曳框選）">✓</span></div>
+          <span class="badge fbadge">${__('📁 資料夾')}</span>
+          <span class="pick" title="${__('勾選（也可以 Ctrl / Shift + 點擊，或在空白處拖曳框選）')}">✓</span></div>
         <div class="meta"><div class="nm">${esc(f.split('/').pop())}</div>
-          <div class="au">${inside.length} 個模型${subs ? `・${subs} 個子資料夾` : ''}</div></div>`;
+          <div class="au">${__('{0} 個模型{1}', inside.length, subs ? __('・{0} 個子資料夾', subs) : '')}</div></div>`;
       c.onclick = (ev) => {
         if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.target.closest('.pick')) {
           togglePickFolder(f);
@@ -535,7 +536,7 @@
     const app = $('app');
     const h = document.createElement('div');
     h.id = 'sideResize';
-    h.title = '拖曳調整左側欄寬度（雙擊還原）';
+    h.title = __('拖曳調整左側欄寬度（雙擊還原）');
     document.body.appendChild(h);
     const MIN = 200, MAX = 520, DEF = 240;
     const clamp = (w) => Math.max(MIN, Math.min(MAX, Math.min(w, innerWidth - 560)));
@@ -625,37 +626,37 @@
     if (!(S.repo && S.loc === 'repo' && S.folder !== null)) return;
     ev.preventDefault();
     const here = S.folder;
-    const addHere = { label: `＋ 新增資料夾${here ? `（在「${here.split('/').pop()}」中）` : ''}`, run: () => newFolder(here) };
+    const addHere = { label: __('＋ 新增資料夾{0}', here ? __('（在「{0}」中）', here.split('/').pop()) : ''), run: () => newFolder(here) };
     const fc = ev.target.closest('.folder-card');
     const card = ev.target.closest('.card[data-id]');
     let items;
     if (fc) {
       const f = fc.dataset.folder;
       items = [
-        { label: '📂 開啟', run: () => openFolder(f) },
-        { label: S.pickedFolders.has(f) ? '取消勾選' : '✓ 勾選', run: () => togglePickFolder(f) },
+        { label: __('📂 開啟'), run: () => openFolder(f) },
+        { label: S.pickedFolders.has(f) ? __('取消勾選') : __('✓ 勾選'), run: () => togglePickFolder(f) },
         ...S.instances.filter((i) => i.is_instance && S.roots.includes(i.root))
-          .map((i) => ({ label: `⬇ 整個資料夾安裝到「${i.name}」`, run: () => installPicked(i.root, f) })),
+          .map((i) => ({ label: __('⬇ 整個資料夾安裝到「{0}」', i.name), run: () => installPicked(i.root, f) })),
         '-',
-        { label: '＋ 在裡面新增資料夾', run: () => newFolder(f) },
-        { label: '✎ 重新命名', run: () => renameFolder(f) },
-        { label: '✕ 刪除資料夾', danger: true, run: () => deleteFolder(f) },
+        { label: __('＋ 在裡面新增資料夾'), run: () => newFolder(f) },
+        { label: __('✎ 重新命名'), run: () => renameFolder(f) },
+        { label: __('✕ 刪除資料夾'), danger: true, run: () => deleteFolder(f) },
         '-', addHere,
       ];
     } else if (card) {
       const id = card.dataset.id;
       items = [
-        { label: S.picked.has(id) ? '取消勾選' : '✓ 勾選', run: () => { togglePick(id); S.lastPick = id; refreshPicks(); } },
+        { label: S.picked.has(id) ? __('取消勾選') : __('✓ 勾選'), run: () => { togglePick(id); S.lastPick = id; refreshPicks(); } },
         '-', addHere,
       ];
     } else {
       items = [addHere];
       if (here) {
         const insts = S.instances.filter((i) => i.is_instance && S.roots.includes(i.root));
-        if (insts.length) items.push('-', ...insts.map((i) => ({ label: `⬇ 這個資料夾整個安裝到「${i.name}」`, run: () => installPicked(i.root, here) })));
+        if (insts.length) items.push('-', ...insts.map((i) => ({ label: __('⬇ 這個資料夾整個安裝到「{0}」', i.name), run: () => installPicked(i.root, here) })));
       }
     }
-    if (here) items.push({ label: '↑ 回上一層', run: () => openFolder(here.includes('/') ? here.slice(0, here.lastIndexOf('/')) : '') });
+    if (here) items.push({ label: __('↑ 回上一層'), run: () => openFolder(here.includes('/') ? here.slice(0, here.lastIndexOf('/')) : '') });
     showMenu(ev.clientX, ev.clientY, items);
   });
 
@@ -667,31 +668,31 @@
     const anyRepo = rp.length > 0 || nf > 0;
     $('selBar').hidden = n === 0;
     $('grid').classList.toggle('picking', n > 0);
-    $('selN').textContent = nf ? `${S.picked.size} 個模型、${nf} 個資料夾` : String(S.picked.size);
+    $('selN').textContent = nf ? __('{0} 個模型、{1} 個資料夾', S.picked.size, nf) : String(S.picked.size);
     const outside = S.picked.size - repoPicked().length;
-    $('selNote').textContent = (nf ? `（共 ${rp.length} 個模型）` : '') + (outside > 0 ? `（${outside} 個在遊戲實例中，安裝、移動時會略過）` : '');
+    $('selNote').textContent = (nf ? __('（共 {0} 個模型）', rp.length) : '') + (outside > 0 ? __('（{0} 個在遊戲實例中，安裝、移動時會略過）', outside) : '');
     $('selDelInst').hidden = outside <= 0;
-    $('selDelInst').textContent = `從實例刪除（${outside}）`;
+    $('selDelInst').textContent = __('從實例刪除（{0}）', outside);
     const insts = S.instances.filter((i) => i.is_instance && S.roots.includes(i.root));
     const keepI = $('selInst').value;
-    $('selInst').innerHTML = insts.map((i) => `<option value="${esc(i.root)}">${esc(i.name)}</option>`).join('') || '<option value="">（沒有遊戲實例）</option>';
+    $('selInst').innerHTML = insts.map((i) => `<option value="${esc(i.root)}">${esc(i.name)}</option>`).join('') || `<option value="">${__('（沒有遊戲實例）')}</option>`;
     if (insts.some((i) => i.root === keepI)) $('selInst').value = keepI;
     const keepF = $('selFolder').value;
-    $('selFolder').innerHTML = ['', ...S.folders].map((f) => `<option value="${esc(f)}">${esc(folderLabel(f))}</option>`).join('') + '<option value="\u0000new">＋ 新資料夾…</option>';
+    $('selFolder').innerHTML = ['', ...S.folders].map((f) => `<option value="${esc(f)}">${esc(folderLabel(f))}</option>`).join('') + `<option value="\u0000new">${__('＋ 新資料夾…')}</option>`;
     if (['', ...S.folders].includes(keepF)) $('selFolder').value = keepF;
     $('selInstall').disabled = !rp.length || !insts.length;
     $('selMove').disabled = !anyRepo;
     const nt = thumbPicked().length;
     $('selThumbDel').disabled = !nt;
     $('selThumbBg').disabled = !nt;
-    $('selThumbBg').textContent = nt ? `換背景（${nt}）` : '換背景';
-    $('selThumbDel').textContent = nt ? `刪除縮圖（${nt}）` : '刪除縮圖';
+    $('selThumbBg').textContent = nt ? __('換背景（{0}）', nt) : __('換背景');
+    $('selThumbDel').textContent = nt ? __('刪除縮圖（{0}）', nt) : __('刪除縮圖');
     $('selDelete').disabled = !anyRepo;
-    $('selDelete').textContent = anyRepo ? `從倉庫刪除（${rp.length}）` : '從倉庫刪除';
+    $('selDelete').textContent = anyRepo ? __('從倉庫刪除（{0}）', rp.length) : __('從倉庫刪除');
     document.querySelectorAll('.inst-pick').forEach((b) => {
-      b.textContent = rp.length ? `安裝選取（${rp.length}）` : '安裝選取';
+      b.textContent = rp.length ? __('安裝選取（{0}）', rp.length) : __('安裝選取');
       b.disabled = !rp.length;
-      b.title = rp.length ? `把勾選的 ${rp.length} 個倉庫模型安裝到這個實例（資料夾會照結構安裝）` : '先在右邊勾選倉庫中的模型或資料夾（點卡片右上角，或 Ctrl / Shift + 點擊）';
+      b.title = rp.length ? __('把勾選的 {0} 個倉庫模型安裝到這個實例（資料夾會照結構安裝）', rp.length) : __('先在右邊勾選倉庫中的模型或資料夾（點卡片右上角，或 Ctrl / Shift + 點擊）');
     });
   }
 
@@ -713,15 +714,15 @@
     const isFolder = typeof folder === 'string';
     const rp = isFolder ? S.entries.filter((e) => inFolder(e, folder)) : pickedModels();
     const todo = rp.filter((e) => !e.installs.some((i) => i.root === root));
-    if (!rp.length) { toast(isFolder ? '這個資料夾裡沒有模型' : '請先勾選倉庫中的模型（點卡片右上角的方框，或 Ctrl / Shift + 點擊卡片）'); return; }
-    if (!todo.length) { toast(`${isFolder ? '這個資料夾中的' : '選取的'}模型都已經安裝在「${name}」了`); return; }
+    if (!rp.length) { toast(isFolder ? __('這個資料夾裡沒有模型') : __('請先勾選倉庫中的模型（點卡片右上角的方框，或 Ctrl / Shift + 點擊卡片）')); return; }
+    if (!todo.length) { toast(isFolder ? __('這個資料夾中的模型都已經安裝在「{0}」了', name) : __('選取的模型都已經安裝在「{0}」了', name)); return; }
     const skip = rp.length - todo.length;
     const inSub = todo.filter((e) => e.group).length;
-    const what = isFolder ? `資料夾「${folderLabel(folder)}」中的 ${todo.length} 個模型` : `${todo.length} 個模型`;
+    const what = isFolder ? __('資料夾「{0}」中的 {1} 個模型', folderLabel(folder), todo.length) : __('{0} 個模型', todo.length);
     const where = isFolder
-      ? `\n\n會照倉庫的資料夾結構放進遊戲：custom\\${folder.split('/').join('\\')}\\…`
-      : (inSub ? `\n\n其中 ${inSub} 個在倉庫的子資料夾中，會放進遊戲中同名的資料夾。` : '');
-    if (!(await confirmBox(isFolder ? '安裝整個資料夾' : '安裝選取的模型', `把${what}安裝到「${name}」？${skip ? `\n（另外 ${skip} 個已經安裝過，會略過）` : ''}${where}`, { ok: '安裝' }))) return;
+      ? `\n\n${__('會照倉庫的資料夾結構放進遊戲：custom\\{0}\\…', folder.split('/').join('\\'))}`
+      : (inSub ? `\n\n${__('其中 {0} 個在倉庫的子資料夾中，會放進遊戲中同名的資料夾。', inSub)}` : '');
+    if (!(await confirmBox(isFolder ? __('安裝整個資料夾') : __('安裝選取的模型'), __('把{0}安裝到「{1}」？{2}{3}', what, name, skip ? `\n${__('（另外 {0} 個已經安裝過，會略過）', skip)}` : '', where), { ok: __('安裝') }))) return;
     const ids = todo.map((e) => e.id);
     let res = await api('install_many', ids, root);
     if (res.need_copy) {
@@ -729,12 +730,12 @@
         const more = await api('install_many', ids, root, true);
         res = { done: res.done + more.done, copied: res.copied + more.copied, errors: res.errors.concat(more.errors) };
       } else {
-        toast(`已安裝 ${res.done} 個；其餘的需要改用複製，已取消`);
+        toast(__('已安裝 {0} 個；其餘的需要改用複製，已取消', res.done));
         await rescan();
         return;
       }
     }
-    toast(`已安裝 ${res.done} 個到「${name}」${res.copied ? `（其中 ${res.copied} 個用複製）` : ''}${res.errors.length ? `；${res.errors.length} 個失敗：${res.errors[0]}` : ''}`, res.errors.length > 0);
+    toast(__('已安裝 {0} 個到「{1}」{2}{3}', res.done, name, res.copied ? __('（其中 {0} 個用複製）', res.copied) : '', res.errors.length ? __('；{0} 個失敗：{1}', res.errors.length, res.errors[0]) : ''), res.errors.length > 0);
     await rescan();
   });
 
@@ -742,7 +743,7 @@
   $('selMove').onclick = guard(async () => {
     let f = $('selFolder').value;
     if (f === '\u0000new') {
-      const name = await promptBox('新資料夾', '在倉庫最上層新增資料夾並把選取的模型移進去，名稱：');
+      const name = await promptBox(__('新資料夾'), __('在倉庫最上層新增資料夾並把選取的模型移進去，名稱：'));
       if (!name) { updateSelUI(); return; }
       S.folders = await api('create_folder', '', name);
       f = name.trim();
@@ -751,14 +752,14 @@
     if (folders.length) {
       const affected = S.entries.filter((e) => folders.some((x) => inFolder(e, x)));
       const n = installedIn(affected);
-      if (!(await confirmBox('移動資料夾', `把 ${folders.length} 個資料夾移到「${folderLabel(f)}」底下？${n ? `\n\n裡面有 ${n} 份已安裝到遊戲，遊戲中的檔案也會照新的結構移動，模型 ID 會跟著改變。` : ''}`, { ok: '移動' }))) return;
+      if (!(await confirmBox(__('移動資料夾'), __('把 {0} 個資料夾移到「{1}」底下？{2}', folders.length, folderLabel(f), n ? `\n\n${__('裡面有 {0} 份已安裝到遊戲，遊戲中的檔案也會照新的結構移動，模型 ID 會跟著改變。', n)}` : ''), { ok: __('移動') }))) return;
       let moved = 0;
       const errors = [];
       for (const x of folders) {
         try { moved += (await api('move_folder', x, f)).moved; } catch (err) { errors.push(`${folderLabel(x)}：${err.message}`); }
       }
       S.pickedFolders.clear();
-      toast(`已移動 ${folders.length - errors.length} 個資料夾${moved ? `，遊戲中 ${moved} 份也已移動` : ''}${errors.length ? `；${errors.length} 個失敗：${errors[0]}` : ''}`, errors.length > 0);
+      toast(__('已移動 {0} 個資料夾{1}{2}', folders.length - errors.length, moved ? __('，遊戲中 {0} 份也已移動', moved) : '', errors.length ? __('；{0} 個失敗：{1}', errors.length, errors[0]) : ''), errors.length > 0);
       if (!S.picked.size) { await rescan(); return; }
     }
     await moveModels([...S.picked], f);
@@ -766,7 +767,7 @@
   $('selDelete').onclick = guard(async () => {
     const folders = topPickedFolders();
     const models = pickedModels();
-    if (!folders.length && !models.length) { toast('沒有勾選倉庫中的模型或資料夾'); return; }
+    if (!folders.length && !models.length) { toast(__('沒有勾選倉庫中的模型或資料夾')); return; }
     if (!(await confirmDelete({ folders, models }))) return;
     let done = 0, recycled = 0, fdone = 0;
     const errors = [];
@@ -784,38 +785,38 @@
     S.picked.clear(); S.pickedFolders.clear();
     if (S.sel && models.some((e) => e.id === S.sel)) S.sel = null;
     if (S.folder && folders.some((f) => S.folder === f || S.folder.startsWith(f + '/'))) S.folder = '';
-    toast(`已刪除 ${fdone ? `${fdone} 個資料夾、` : ''}${done} 個模型${done ? (recycled === done ? '（已移到資源回收筒）' : recycled ? `（${recycled} 個移到資源回收筒）` : '（永久刪除）') : ''}${errors.length ? `；${errors.length} 個失敗：${errors[0]}` : ''}`, errors.length > 0);
+    toast(__('已刪除 {0}{1} 個模型{2}{3}', fdone ? __('{0} 個資料夾、', fdone) : '', done, done ? (recycled === done ? __('（已移到資源回收筒）') : recycled ? __('（{0} 個移到資源回收筒）', recycled) : __('（永久刪除）')) : '', errors.length ? __('；{0} 個失敗：{1}', errors.length, errors[0]) : ''), errors.length > 0);
     await rescan();
   });
   // 批量刪除遊戲實例中的模型（倉庫中的那份不受影響）
   $('selDelInst').onclick = guard(async () => {
     const list = S.entries.filter((e) => S.picked.has(e.id) && e.location !== 'repo');
-    if (!list.length) { toast('沒有勾選遊戲實例中的模型'); return; }
+    if (!list.length) { toast(__('沒有勾選遊戲實例中的模型')); return; }
     const info = await api('delete_info', list[0].id);
     const fate = info.recycle
-      ? '檔案會移到<b>資源回收筒</b>，需要時可以還原。'
-      : '<span class="warn">遊戲實例所在的磁碟沒有資源回收筒，刪除後無法復原！</span>';
+      ? `${__('檔案會移到<b>資源回收筒</b>，需要時可以還原。')}`
+      : `<span class="warn">${__('遊戲實例所在的磁碟沒有資源回收筒，刪除後無法復原！')}</span>`;
     const repoKeys = new Set(S.entries.filter((e) => e.location === 'repo').map((e) => e.key));
     const noBackup = list.filter((e) => !repoKeys.has(e.key)).length;
     const lines = list.map((e) => `・${esc(displayName(e))}　<span class="muted">${esc(instName(e.root))}</span>`);
-    const names = lines.slice(0, 10).join('\n') + (lines.length > 10 ? `\n…還有 ${lines.length - 10} 個` : '');
+    const names = lines.slice(0, 10).join('\n') + (lines.length > 10 ? `\n${__('…還有 {0} 個', lines.length - 10)}` : '');
     const size = list.reduce((a, e) => a + (e.size || 0), 0);
     const r1 = await ask({
-      title: '從遊戲實例刪除',
-      body: `要從遊戲實例刪除 <b>${list.length} 個模型</b>嗎？（共 ${fmtSize(size)}）\n刪除後遊戲中就不能再使用這些模型；倉庫中的那份不受影響。\n\n${names}`
-        + (noBackup ? `\n\n<span class="warn">其中 ${noBackup} 個倉庫中沒有備份。</span>` : '\n\n倉庫中都有備份，之後可以再安裝回來。')
+      title: __('從遊戲實例刪除'),
+      body: `${__('要從遊戲實例刪除 <b>{0} 個模型</b>嗎？（共 {1}）\n刪除後遊戲中就不能再使用這些模型；倉庫中的那份不受影響。\n\n{2}', list.length, fmtSize(size), names)}`
+        + (noBackup ? `\n\n<span class="warn">${__('其中 {0} 個倉庫中沒有備份。', noBackup)}</span>` : __('\n\n倉庫中都有備份，之後可以再安裝回來。'))
         + `\n\n${fate}`,
-      ok: '刪除', danger: true,
+      ok: __('刪除'), danger: true,
     });
     if (!r1.ok) return;
     if (!S.settings || S.settings.confirm_delete_twice !== false) {
-      const r2 = await ask({ title: '再次確認', body: `真的要從遊戲實例刪除 <b>${list.length} 個模型</b>嗎？\n\n${fate}`, ok: '確定刪除', cancel: '不要刪除', danger: true });
+      const r2 = await ask({ title: __('再次確認'), body: `${__('真的要從遊戲實例刪除 <b>{0} 個模型</b>嗎？\n\n{1}', list.length, fate)}`, ok: __('確定刪除'), cancel: __('不要刪除'), danger: true });
       if (!r2.ok) return;
     }
     const r = await api('delete_many', list.map((e) => e.id), 'instance');
     for (const e of list) S.picked.delete(e.id);
     if (S.sel && list.some((e) => e.id === S.sel)) S.sel = null;
-    toast(`已從遊戲實例刪除 ${r.done} 個模型${r.done ? (r.recycled === r.done ? '（已移到資源回收筒）' : r.recycled ? `（${r.recycled} 個移到資源回收筒）` : '（永久刪除）') : ''}${r.errors.length ? `；${r.errors.length} 個失敗：${r.errors[0]}` : ''}`, r.errors.length > 0);
+    toast(__('已從遊戲實例刪除 {0} 個模型{1}{2}', r.done, r.done ? (r.recycled === r.done ? __('（已移到資源回收筒）') : r.recycled ? __('（{0} 個移到資源回收筒）', r.recycled) : __('（永久刪除）')) : '', r.errors.length ? __('；{0} 個失敗：{1}', r.errors.length, r.errors[0]) : ''), r.errors.length > 0);
     await rescan();
   });
 
@@ -827,25 +828,25 @@
   }
   $('selThumbDel').onclick = guard(async () => {
     const list = thumbPicked();
-    if (!list.length) { toast('勾選的模型都沒有縮圖'); return; }
-    if (!(await confirmBox('刪除縮圖', `刪除 ${list.length} 個模型的縮圖？\n\n只會刪除縮圖圖片，模型檔案不受影響。刪除後無法復原，需要時可以重新產生。`, { ok: '刪除縮圖', danger: true }))) return;
+    if (!list.length) { toast(__('勾選的模型都沒有縮圖')); return; }
+    if (!(await confirmBox(__('刪除縮圖'), __('刪除 {0} 個模型的縮圖？\n\n只會刪除縮圖圖片，模型檔案不受影響。刪除後無法復原，需要時可以重新產生。', list.length), { ok: __('刪除縮圖'), danger: true }))) return;
     const r = await api('clear_thumbs', list.map((e) => e.key));
     for (const [k, rec] of Object.entries(r.users)) applyUser(k, rec);
-    toast(`已刪除 ${r.removed} 張縮圖`);
+    toast(__('已刪除 {0} 張縮圖', r.removed));
     renderGrid(); renderDetail(); updateSelUI();
   });
   // ---- 批量換背景：只處理透明背景的縮圖，原圖會保留（thumb_src），可以再換或還原 ----
   const BG = { mode: 'solid', img: null, list: [] };
   const BG_PRESETS = [
-    { n: '深色', mode: 'solid', c1: '#23272f' }, { n: '淺灰', mode: 'solid', c1: '#e9ecf1' },
-    { n: '天空', mode: 'grad', g1: '#7ec8ff', g2: '#e3f4ff' }, { n: '草地', mode: 'grad', g1: '#9fd6ff', g2: '#5fae4c' },
-    { n: '夕陽', mode: 'grad', g1: '#ffb36b', g2: '#ff6f91' }, { n: '星空', mode: 'grad', g1: '#0b0f1e', g2: '#2a3a78' },
+    { n: __('深色'), mode: 'solid', c1: '#23272f' }, { n: __('淺灰'), mode: 'solid', c1: '#e9ecf1' },
+    { n: __('天空'), mode: 'grad', g1: '#7ec8ff', g2: '#e3f4ff' }, { n: __('草地'), mode: 'grad', g1: '#9fd6ff', g2: '#5fae4c' },
+    { n: __('夕陽'), mode: 'grad', g1: '#ffb36b', g2: '#ff6f91' }, { n: __('星空'), mode: 'grad', g1: '#0b0f1e', g2: '#2a3a78' },
   ];
   const srcURL = (e) => {
     const n = e.user && (e.user.thumb_src || e.user.thumb);
     return n ? `/api/thumb/${encodeURIComponent(n)}?${tq}` : '';
   };
-  const loadImg = (url) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('讀不到縮圖')); i.src = url; });
+  const loadImg = (url) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error(__('讀不到縮圖'))); i.src = url; });
   function hasAlpha(img) {
     const c = document.createElement('canvas');
     const w = c.width = Math.min(img.naturalWidth, 160), h = c.height = Math.round(img.naturalHeight * w / img.naturalWidth) || 1;
@@ -904,30 +905,30 @@
   });
   $('selThumbBg').onclick = guard(async () => {
     BG.list = thumbPicked();
-    if (!BG.list.length) { toast('勾選的模型都沒有縮圖'); return; }
+    if (!BG.list.length) { toast(__('勾選的模型都沒有縮圖')); return; }
     bgPrevImg = null;
     const withSrc = BG.list.filter((e) => e.user.thumb_src).length;
-    $('bgInfo').textContent = `${BG.list.length} 個模型有縮圖${withSrc ? `，其中 ${withSrc} 個換過背景` : ''}`;
+    $('bgInfo').textContent = __('{0} 個模型有縮圖{1}', BG.list.length, withSrc ? __('，其中 {0} 個換過背景', withSrc) : '');
     $('bgModal').hidden = false;
     // 預覽用第一張透明背景的縮圖
     for (const e of BG.list.slice(0, 30)) {
       try { const im = await loadImg(srcURL(e)); if (hasAlpha(im)) { bgPrevImg = im; $('bgPrevName').textContent = displayName(e); break; } } catch (err) { /* 略過 */ }
     }
-    if (!bgPrevImg) $('bgPrevName').textContent = '前幾個都不是透明背景的縮圖';
+    if (!bgPrevImg) $('bgPrevName').textContent = __('前幾個都不是透明背景的縮圖');
     bgPreview();
   });
   $('bgApply').onclick = guard(async () => {
     const list = BG.list;
-    if (BG.mode === 'image' && !BG.img) { toast('請先選擇背景圖片', true); return; }
+    if (BG.mode === 'image' && !BG.img) { toast(__('請先選擇背景圖片'), true); return; }
     closeModal($('bgModal'));
     if (BG.mode === 'none') {
       const r = await api('restore_thumb_bg', list.map((e) => e.key));
       for (const [k, rec] of Object.entries(r.users)) applyUser(k, rec);
-      toast(r.restored ? `已還原 ${r.restored} 張縮圖的原本背景` : '勾選的縮圖都沒有換過背景');
+      toast(r.restored ? __('已還原 {0} 張縮圖的原本背景', r.restored) : __('勾選的縮圖都沒有換過背景'));
     } else {
       let done = 0, skip = 0, fail = 0;
       for (const [i, e] of list.entries()) {
-        toast(`換背景中… ${i + 1} / ${list.length}`);
+        toast(__('換背景中… {0} / {1}', i + 1, list.length));
         try {
           const im = await loadImg(srcURL(e));
           if (!hasAlpha(im)) { skip++; continue; }
@@ -936,7 +937,7 @@
           done++;
         } catch (err) { fail++; }
       }
-      toast(`已換 ${done} 張縮圖的背景${skip ? `，略過 ${skip} 張（不是透明背景，例如沒有去除背景的遊戲截圖）` : ''}${fail ? `，${fail} 張失敗` : ''}`, fail > 0);
+      toast(__('已換 {0} 張縮圖的背景{1}{2}', done, skip ? __('，略過 {0} 張（不是透明背景，例如沒有去除背景的遊戲截圖）', skip) : '', fail ? __('，{0} 張失敗', fail) : ''), fail > 0);
     }
     renderGrid(); renderDetail(); updateSelUI();
   });
@@ -976,9 +977,9 @@
     }
     const from = total ? (PAGE.size ? PAGE.page * PAGE.size + 1 : 1) : 0;
     const to = PAGE.size ? Math.min(total, (PAGE.page + 1) * PAGE.size) : total;
-    p.innerHTML = `<span class="muted">第 ${from}–${to} 個，共 ${total} 個</span>
-      <span class="pg-nums">${pages > 1 ? btn('‹', PAGE.page - 1, { dis: PAGE.page === 0, title: '上一頁（PageUp）' }) + nums + btn('›', PAGE.page + 1, { dis: PAGE.page >= pages - 1, title: '下一頁（PageDown）' }) : ''}</span>
-      <label class="muted">每頁<select id="pageSize">${[24, 48, 96, 0].map((n) => `<option value="${n}" ${n === PAGE.size ? 'selected' : ''}>${n || '全部'}</option>`).join('')}</select></label>`;
+    p.innerHTML = `<span class="muted">${__('第 {0}–{1} 個，共 {2} 個', from, to, total)}</span>
+      <span class="pg-nums">${pages > 1 ? btn('‹', PAGE.page - 1, { dis: PAGE.page === 0, title: __('上一頁（PageUp）') }) + nums + btn('›', PAGE.page + 1, { dis: PAGE.page >= pages - 1, title: __('下一頁（PageDown）') }) : ''}</span>
+      <label class="muted">${__('每頁')}<select id="pageSize">${[24, 48, 96, 0].map((n) => `<option value="${n}" ${n === PAGE.size ? 'selected' : ''}>${n || __('全部')}</option>`).join('')}</select></label>`;
     p.querySelectorAll('button[data-to]').forEach((b) => { b.onclick = () => gotoPage(Number(b.dataset.to)); });
     $('pageSize').onchange = () => {
       PAGE.size = Number($('pageSize').value);
@@ -1098,13 +1099,13 @@
       // 這個版本沒有縮圖時，借用同角色其他版本的
       const th = thumbURL(e) || thumbURL(it.members.find((m) => m.user.thumb) || e);
       const stars = e.user.rating ? '★'.repeat(e.user.rating) : '';
-      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="勾選（也可以 Ctrl / Shift + 點擊卡片，或在卡片之間的空白處拖曳框選）">✓</span>
-          <span class="badge${e.location === 'repo' ? ' repo' : ''}" title="${esc(placesOf(e).join('、'))}">${esc(placesOf(e).join('＋'))}${placesOf(e).length ? ' · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? '<span class="badge lock">加密</span>' : ''}${e.enabled ? '' : '<span class="badge offb">已停用</span>'}${it.members.length > 1 ? `<span class="badge ver" title="同一個角色有 ${it.members.length} 個版本，點開可切換">${it.members.length} 個版本</span>` : ''}
-          ${e.location === 'repo' ? `<span class="badge inst">已裝 ${e.installs.length}/${S.instances.filter((i) => i.is_instance).length}</span>` : (S.repo && !e.repo_id ? '<span class="badge norepo">未入庫</span>' : '')}</div>
+      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="${__('勾選（也可以 Ctrl / Shift + 點擊卡片，或在卡片之間的空白處拖曳框選）')}">✓</span>
+          <span class="badge${e.location === 'repo' ? ' repo' : ''}" title="${esc(placesOf(e).join('、'))}">${esc(placesOf(e).join('＋'))}${placesOf(e).length ? ' · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? `<span class="badge lock">${__('加密')}</span>` : ''}${e.enabled ? '' : `<span class="badge offb">${__('已停用')}</span>`}${it.members.length > 1 ? `<span class="badge ver" title="${__('同一個角色有 {0} 個版本，點開可切換', it.members.length)}">${__('{0} 個版本', it.members.length)}</span>` : ''}
+          ${e.location === 'repo' ? `<span class="badge inst">${__('已裝 {0}/{1}', e.installs.length, S.instances.filter((i) => i.is_instance).length)}</span>` : (S.repo && !e.repo_id ? `<span class="badge norepo">${__('未入庫')}</span>` : '')}</div>
         <div class="meta"><div class="nm" title="${esc(displayName(e))}">${esc(displayName(e))}</div>
           <div class="au">${esc(authorText(e) || e.filename)}</div>
           ${e.location !== 'repo' && S.roots.length > 1 ? `<div class="au" title="${esc(e.root)}">📁 ${esc(e.instance)}</div>` : ''}
-          ${e.location === 'repo' && e.group && S.folder !== e.group && !(S.folder !== null && parentOf(e.group) === S.folder && modelFolders().has(e.group)) ?`<div class="au" title="倉庫資料夾">📂 ${esc(folderLabel(e.group))}</div>` : ''}
+          ${e.location === 'repo' && e.group && S.folder !== e.group && !(S.folder !== null && parentOf(e.group) === S.folder && modelFolders().has(e.group)) ?`<div class="au" title="${__('倉庫資料夾')}">📂 ${esc(folderLabel(e.group))}</div>` : ''}
           <div class="stars">${stars}</div>
           <div class="tg">${(e.user.tags || []).slice(0, 4).map((t) => `<span>${esc(t)}</span>`).join('')}</div></div>`;
       c.onclick = (ev) => {
@@ -1139,8 +1140,8 @@
     }
     grid.appendChild(frag);
     $('count').textContent = all.length === files.length
-      ? `${files.length} / ${S.entries.length} 個模型`
-      : `${all.length} 張卡（${files.length} / ${S.entries.length} 個檔案）`;
+      ? __('{0} / {1} 個模型', files.length, S.entries.length)
+      : __('{0} 張卡（{1} / {2} 個檔案）', all.length, files.length, S.entries.length);
     $('emptyState').hidden = S.entries.length > 0;
   }
 
@@ -1152,7 +1153,7 @@
     renderGrid();
     renderDetail();
     const on = S.entries.filter((e) => e.enabled).length;
-    $('footInfo').textContent = S.entries.length ? `共 ${S.entries.length} 個，啟用 ${on}，停用 ${S.entries.length - on}` : '';
+    $('footInfo').textContent = S.entries.length ? __('共 {0} 個，啟用 {1}，停用 {2}', S.entries.length, on, S.entries.length - on) : '';
   }
 
   for (const [id, key] of [['fStatus', 'status'], ['fKind', 'kind']]) {
@@ -1186,19 +1187,19 @@
       const rows = S.instances.filter((i) => i.is_instance).map((inst) => {
         const ins = e.installs.find((x) => x.root === inst.root);
         const state = ins
-          ? `<span class="s ok">已安裝 · ${ins.link === 'hardlink' ? '硬連結' : '複製'}${ins.enabled ? '' : ' · 停用中'}</span>`
-          : '<span class="s">未安裝</span>';
+          ? `<span class="s ok">${__('已安裝 · {0}{1}', ins.link === 'hardlink' ? __('硬連結') : __('複製'), ins.enabled ? '' : __(' · 停用中'))}</span>`
+          : `<span class="s">${__('未安裝')}</span>`;
         const btn = ins
-          ? `<button class="btn small ghost" data-un="${esc(ins.id)}">移除</button>`
-          : `<button class="btn small" data-in="${esc(inst.root)}">安裝</button>`;
+          ? `<button class="btn small ghost" data-un="${esc(ins.id)}">${__('移除')}</button>`
+          : `<button class="btn small" data-in="${esc(inst.root)}">${__('安裝')}</button>`;
         return `<div class="inst-row"><span class="n"><b title="${esc(inst.root)}">${esc(inst.name)}</b>${state}</span>${btn}</div>`;
       }).join('');
-      return `<div class="d-sec"><h3>安裝到遊戲實例</h3><div class="inst-list" id="dInst">${rows || '<span class="muted">尚未加入遊戲實例</span>'}</div></div>`;
+      return `<div class="d-sec"><h3>${__('安裝到遊戲實例')}</h3><div class="inst-list" id="dInst">${rows || `<span class="muted">${__('尚未加入遊戲實例')}</span>`}</div></div>`;
     }
     if (e.repo_id) {
-      return `<div class="d-sec"><h3>倉庫</h3><div class="inst-row"><span class="n"><span class="s ok">倉庫中已有這個模型</span></span><button class="btn small ghost" data-goto="${esc(e.repo_id)}">查看倉庫項目</button></div></div>`;
+      return `<div class="d-sec"><h3>${__('倉庫')}</h3><div class="inst-row"><span class="n"><span class="s ok">${__('倉庫中已有這個模型')}</span></span><button class="btn small ghost" data-goto="${esc(e.repo_id)}">${__('查看倉庫項目')}</button></div></div>`;
     }
-    return `<div class="d-sec"><h3>倉庫</h3><div class="inst-row"><span class="n"><span class="s">還沒加入倉庫</span></span><button class="btn small" data-import="1">加入倉庫</button></div></div>`;
+    return `<div class="d-sec"><h3>${__('倉庫')}</h3><div class="inst-row"><span class="n"><span class="s">${__('還沒加入倉庫')}</span></span><button class="btn small" data-import="1">${__('加入倉庫')}</button></div></div>`;
   }
 
   function bindInstallSection(box, e) {
@@ -1210,16 +1211,16 @@
           if (!(await confirmCopy(fmtSize(e.size || 0)))) { b.disabled = false; return; }
           res = await api('install', e.id, b.dataset.in, true);
         }
-        toast('已安裝到「' + instName(b.dataset.in) + '」' + (res.fallback ? '（用複製）' : ''));
+        toast(__('已安裝到「{0}」{1}', instName(b.dataset.in), res.fallback ? __('（用複製）') : ''));
         await rescan();
       });
     });
     box.querySelectorAll('[data-un]').forEach((b) => {
       b.onclick = guard(async () => {
         const ins = e.installs.find((x) => x.id === b.dataset.un);
-        if (!(await confirmBox('從實例移除', `從「${ins ? ins.instance : ''}」移除這個模型？\n倉庫中的檔案會保留，之後可以再安裝。`, { ok: '移除' }))) return;
+        if (!(await confirmBox(__('從實例移除'), __('從「{0}」移除這個模型？\n倉庫中的檔案會保留，之後可以再安裝。', ins ? ins.instance : ''), { ok: __('移除') }))) return;
         await api('uninstall', b.dataset.un);
-        toast('已從實例移除');
+        toast(__('已從實例移除'));
         await rescan();
       });
     });
@@ -1229,7 +1230,7 @@
     if (im) im.onclick = guard(async () => {
       im.disabled = true;
       const res = await api('import_to_repo', e.id);
-      toast(res.linked ? '已加入倉庫，實例中的檔案已換成硬連結' : '已加入倉庫（複製）');
+      toast(res.linked ? __('已加入倉庫，實例中的檔案已換成硬連結') : __('已加入倉庫（複製）'));
       await rescan();
     });
   }
@@ -1244,23 +1245,23 @@
         if (!out.some((x) => x.url === u)) out.push({ label, url: u });
       }
     };
-    add('說明中的連結', e.meta && e.meta.tips);
-    add('檔頭公開資訊中的連結', e.summary && e.summary.text);
+    add(__('說明中的連結'), e.meta && e.meta.tips);
+    add(__('檔頭公開資訊中的連結'), e.summary && e.summary.text);
     return out.slice(0, 20);
   }
   const hostOf = (u) => { try { return new URL(u).host; } catch (err) { return ''; } };
   // 常見網站：只在網域完全相同或是它的子網域時才算（bilibili.com.xxx.com 這種不算）
   const SITES = [
-    { d: ['bilibili.com', 'b23.tv', 'bilibili.tv'], name: 'B站', color: '#fb7299', key: 'bilibili' },
-    { d: ['afdian.com', 'afdian.net', 'ifdian.net'], name: '愛發電', color: '#946ce6', key: 'afdian' },
-    { d: ['mianbaoduo.com', 'mbd.pub'], name: '麵包多', color: '#f5a623', key: 'mianbaoduo' },
+    { d: ['bilibili.com', 'b23.tv', 'bilibili.tv'], name: __('B站'), color: '#fb7299', key: 'bilibili' },
+    { d: ['afdian.com', 'afdian.net', 'ifdian.net'], name: __('愛發電'), color: '#946ce6', key: 'afdian' },
+    { d: ['mianbaoduo.com', 'mbd.pub'], name: __('麵包多'), color: '#f5a623', key: 'mianbaoduo' },
     { d: ['github.com', 'github.io'], name: 'GitHub', color: '#8b949e', key: 'github' },
     { d: ['gitee.com'], name: 'Gitee', color: '#c71d23', key: 'gitee' },
     { d: ['youtube.com', 'youtu.be'], name: 'YouTube', color: '#ff3d3d', key: 'youtube' },
     { d: ['twitter.com', 'x.com'], name: 'X（Twitter）', color: '#9aa1ad', key: 'twitter' },
-    { d: ['weibo.com', 'weibo.cn'], name: '微博', color: '#e6162d', key: 'weibo' },
-    { d: ['xiaohongshu.com', 'xhslink.com'], name: '小紅書', color: '#ff2442', key: 'xiaohongshu' },
-    { d: ['douyin.com'], name: '抖音', color: '#25f4ee', key: 'douyin' },
+    { d: ['weibo.com', 'weibo.cn'], name: __('微博'), color: '#e6162d', key: 'weibo' },
+    { d: ['xiaohongshu.com', 'xhslink.com'], name: __('小紅書'), color: '#ff2442', key: 'xiaohongshu' },
+    { d: ['douyin.com'], name: __('抖音'), color: '#25f4ee', key: 'douyin' },
     { d: ['qq.com'], name: 'QQ', color: '#12b7f5', key: 'qq' },
     { d: ['kookapp.cn', 'kook.top'], name: 'KOOK', color: '#7dd321', key: 'kook' },
     { d: ['discord.gg', 'discord.com'], name: 'Discord', color: '#5865f2', key: 'discord' },
@@ -1268,8 +1269,8 @@
     { d: ['ko-fi.com'], name: 'Ko-fi', color: '#29abe0', key: 'ko-fi' },
     { d: ['pixiv.net'], name: 'pixiv', color: '#0096fa', key: 'pixiv' },
     { d: ['booth.pm'], name: 'BOOTH', color: '#fc4d50', key: 'booth' },
-    { d: ['taobao.com', 'tb.cn', 'tmall.com'], name: '淘寶', color: '#ff5000', key: 'taobao' },
-    { d: ['mcmod.cn'], name: 'MC 百科', color: '#5fcf8a', key: 'mcmod' },
+    { d: ['taobao.com', 'tb.cn', 'tmall.com'], name: __('淘寶'), color: '#ff5000', key: 'taobao' },
+    { d: ['mcmod.cn'], name: __('MC 百科'), color: '#5fcf8a', key: 'mcmod' },
     { d: ['curseforge.com'], name: 'CurseForge', color: '#f16436', key: 'curseforge' },
     { d: ['modrinth.com'], name: 'Modrinth', color: '#1bd96a', key: 'modrinth' },
     { d: ['mcbbs.net', 'mcbbs.co'], name: 'MCBBS', color: '#c9a063', key: 'mcbbs' },
@@ -1281,14 +1282,14 @@
     if (hit) {
       // 依網址再細分（B站個人空間、影片…）
       let sub = '';
-      if (hit.key === 'bilibili') sub = h.startsWith('space.') ? '個人空間' : /\/video\//.test(url) || h === 'b23.tv' ? '影片' : '';
-      if (hit.key === 'qq') sub = h.startsWith('qm.') || /jq\.qq\.com/.test(h) ? '加群' : '';
-      if (hit.key === 'afdian') sub = '贊助頁';
+      if (hit.key === 'bilibili') sub = h.startsWith('space.') ? __('個人空間') : /\/video\//.test(url) || h === 'b23.tv' ? __('影片') : '';
+      if (hit.key === 'qq') sub = h.startsWith('qm.') || /jq\.qq\.com/.test(h) ? __('加群') : '';
+      if (hit.key === 'afdian') sub = __('贊助頁');
       return { ...hit, label: hit.name + (sub ? ' · ' + sub : ''), fake: false };
     }
     // 網域裡有知名網站的名字、但不是官方網域：疑似仿冒
     const look = SITES.find((s) => (s.key.length >= 5 && h.includes(s.key)) ||s.d.some((d) => h.includes(d.split('.')[0]) && d.split('.')[0].length >= 5));
-    return look ? { name: look.name, color: '#f0b35a', label: `不是${look.name}官方網址`, fake: true } : null;
+    return look ? { name: look.name, color: '#f0b35a', label: __('不是{0}官方網址', look.name), fake: true } : null;
   }
   const siteChip = (s) => (s ? `<span class="site${s.fake ? ' fake' : ''}" style="--c:${s.color}">${s.fake ? '⚠ ' : ''}${esc(s.label)}</span>` : '');
   function linksSection(e) {
@@ -1296,25 +1297,25 @@
     if (!links.length) return '';
     const rows = links.map((l) => `<div class="link-row">
         <span class="n"><b>${siteChip(siteOf(l.url))}${esc(l.label)}</b><small title="${esc(l.url)}">${esc(l.url)}</small></span>
-        <button class="btn small ghost" data-url="${esc(l.url)}" data-label="${esc(l.label)}">前往 ↗</button>
+        <button class="btn small ghost" data-url="${esc(l.url)}" data-label="${esc(l.label)}">${__('前往 ↗')}</button>
       </div>`).join('');
-    return `<div class="d-sec"><h3>連結（${links.length}）</h3><div class="link-list">${rows}</div>
-      <div class="muted small-note">這些連結由模型作者提供，管理器無法確認是否安全，開啟前會再提醒一次。</div></div>`;
+    return `<div class="d-sec"><h3>${__('連結（{0}）', links.length)}</h3><div class="link-list">${rows}</div>
+      <div class="muted small-note">${__('這些連結由模型作者提供，管理器無法確認是否安全，開啟前會再提醒一次。')}</div></div>`;
   }
   async function openExternal(url, label) {
     const host = hostOf(url);
-    if (!host || !/^https?:$/i.test(new URL(url).protocol)) { toast('只能開啟 http 或 https 連結', true); return; }
+    if (!host || !/^https?:$/i.test(new URL(url).protocol)) { toast(__('只能開啟 http 或 https 連結'), true); return; }
     const site = siteOf(url);
     const r = await ask({
-      title: '即將開啟外部連結',
-      body: `${label ? esc(label) + '\n' : ''}網站：${site && !site.fake ? `<b>${esc(site.label)}</b>（${esc(host)}）` : `<b>${esc(host)}</b>`}\n<small>${esc(url)}</small>\n\n`
-        + (site && site.fake ? `<span class="warn">⚠⚠ 這個網址看起來像「${esc(site.name)}」，但不是它的官方網域，很可能是仿冒網站！</span>\n` : '')
-        + '<span class="warn">⚠ 這是模型作者提供的連結，管理器無法確認它是否安全。</span>\n'
-        + '・確認網址是你預期的網站，小心仿冒網址\n'
-        + '・不要在不熟悉的網站輸入密碼、帳號或付款資訊\n'
-        + '・不要下載或執行來路不明的檔案'
-        + (/^http:/i.test(url) ? '\n・<span class="warn">這個連結沒有加密（http），傳送的資料可能被看到</span>' : ''),
-      ok: '在瀏覽器開啟', cancel: '不要開啟', danger: true,
+      title: __('即將開啟外部連結'),
+      body: `${__('{0}網站：{1}\n<small>{2}</small>', label ? esc(label) + '\n' : '', site && !site.fake ? `<b>${esc(site.label)}</b>（${esc(host)}）` : `<b>${esc(host)}</b>`, esc(url))}\n\n`
+        + (site && site.fake ? `<span class="warn">${__('⚠⚠ 這個網址看起來像「{0}」，但不是它的官方網域，很可能是仿冒網站！', esc(site.name))}</span>\n` : '')
+        + `<span class="warn">${__('⚠ 這是模型作者提供的連結，管理器無法確認它是否安全。')}</span>\n`
+        + __('・確認網址是你預期的網站，小心仿冒網址\n')
+        + __('・不要在不熟悉的網站輸入密碼、帳號或付款資訊\n')
+        + __('・不要下載或執行來路不明的檔案')
+        + (/^http:/i.test(url) ? `\n・<span class="warn">${__('這個連結沒有加密（http），傳送的資料可能被看到')}</span>` : ''),
+      ok: __('在瀏覽器開啟'), cancel: __('不要開啟'), danger: true,
     });
     if (r.ok) await api('open_url', url);
   }
@@ -1328,13 +1329,13 @@
       const ver = verInfo(v).ver;
       const dir = v.rel.includes('/') ? v.rel.slice(0, v.rel.lastIndexOf('/')) : '';
       return `<button class="ver-row${v.id === e.id ? ' on' : ''}" data-ver="${esc(v.id)}" title="${esc(v.rel)}">
-        <span class="v">${ver ? 'v' + esc(ver) : '（無版本號）'}</span>
+        <span class="v">${ver ? 'v' + esc(ver) : __('（無版本號）')}</span>
         <span class="f">${esc(v.filename)}${dir ? `<small>${esc(dir)}</small>` : ''}</span>
-        <span class="t">${i === 0 ? '<i class="new">最新</i>' : ''}${v.location === 'repo' && v.installs.length ? `<i>已裝 ${v.installs.length}</i>` : ''}${fmtSize(v.size || 0)}</span>
+        <span class="t">${i === 0 ? `${__('<i class="new">最新</i>')}` : ''}${v.location === 'repo' && v.installs.length ? `${__('<i>已裝 {0}</i>', v.installs.length)}` : ''}${fmtSize(v.size || 0)}</span>
       </button>`;
     }).join('');
-    return `<div class="d-sec"><h3>版本（${vs.length}）</h3><div class="ver-list">${rows}</div>
-      <div class="muted small-note">點選切換；安裝、刪除、縮圖等操作都只針對目前選取的版本。</div></div>`;
+    return `<div class="d-sec"><h3>${__('版本（{0}）', vs.length)}</h3><div class="ver-list">${rows}</div>
+      <div class="muted small-note">${__('點選切換；安裝、刪除、縮圖等操作都只針對目前選取的版本。')}</div></div>`;
   }
 
   function renderDetail() {
@@ -1346,47 +1347,47 @@
     const th = thumbURL(e);
     const authors = (m.authors || []).map((a) => `<div class="author-line">${esc(a.name)}${a.role ? ` <span class="r">· ${esc(a.role)}</span>` : ''}</div>`).join('');
     box.innerHTML = `
-      <button class="d-close" id="dClose" title="關閉">✕</button>
+      <button class="d-close" id="dClose" title="${__('關閉')}">✕</button>
       <div class="d-thumb ${th ? 'has' : ''}" id="dThumb" ${th ? `style="background-image:url('${th}')"` : ''}>
-        <div class="hint">把圖片拖到這裡、按 Ctrl+V 貼上，<br>或用下方按鈕設定縮圖</div>
+        <div class="hint">${__('把圖片拖到這裡、按 Ctrl+V 貼上，<br>或用下方按鈕設定縮圖')}</div>
       </div>
       <div class="row">
-        <button class="btn small ghost" id="bShot">從遊戲截圖選</button>
-        <button class="btn small ghost" id="bImg">選擇圖片</button>
-        ${th ? '<button class="btn small danger" id="bClr">清除</button>' : ''}
+        <button class="btn small ghost" id="bShot">${__('從遊戲截圖選')}</button>
+        <button class="btn small ghost" id="bImg">${__('選擇圖片')}</button>
+        ${th ? `<button class="btn small danger" id="bClr">${__('清除')}</button>` : ''}
       </div>
       <div class="d-title">${esc(displayName(e))}</div>
       <div class="d-sub">${esc(e.filename)}</div>
       ${versionsSection(e)}
       <div class="row">
-        ${e.previewable ? '<button class="btn" id="bPrev">3D 預覽</button>' : ''}
-        ${e.source ? `<button class="btn ghost" id="bToggle">${e.enabled ? '停用' : '啟用'}</button>` : ''}
-        <button class="btn ghost" id="bReveal">在檔案總管中顯示</button>
-        <button class="btn ghost" id="bRename">重新命名</button>
-        <button class="btn danger" id="bDelModel">${e.location === 'repo' ? '從倉庫刪除' : '刪除'}</button>
+        ${e.previewable ? `<button class="btn" id="bPrev">${__('3D 預覽')}</button>` : ''}
+        ${e.source ? `<button class="btn ghost" id="bToggle">${e.enabled ? __('停用') : __('啟用')}</button>` : ''}
+        <button class="btn ghost" id="bReveal">${__('在檔案總管中顯示')}</button>
+        <button class="btn ghost" id="bRename">${__('重新命名')}</button>
+        <button class="btn danger" id="bDelModel">${e.location === 'repo' ? __('從倉庫刪除') : __('刪除')}</button>
       </div>
       ${installSection(e)}
-      ${e.kind === 'ysm' ? '<div class="d-sec note">這是加密的 .ysm 模型，只能在遊戲內的 YSM 選單預覽 3D。建議在遊戲中截圖，再用「從遊戲截圖選」設為縮圖。</div>' : ''}
+      ${e.kind === 'ysm' ? `<div class="d-sec note">${__('這是加密的 .ysm 模型，只能在遊戲內的 YSM 選單預覽 3D。建議在遊戲中截圖，再用「從遊戲截圖選」設為縮圖。')}</div>` : ''}
       ${e.error ? `<div class="d-sec note" style="color:var(--warn)">${esc(e.error)}</div>` : ''}
 
-      <div class="d-sec"><h3>評分</h3><div class="stars-edit" id="dStars">${[1, 2, 3, 4, 5].map((i) => `<button data-v="${i}" class="${(e.user.rating || 0) >= i ? 'on' : ''}">★</button>`).join('')}</div></div>
-      <div class="d-sec"><h3>標籤</h3><div class="tags-edit" id="dTags">${(e.user.tags || []).map((t) => `<span class="t">${esc(t)}<button data-t="${esc(t)}">✕</button></span>`).join('')}<input id="dTagIn" list="tagList" placeholder="輸入後按 Enter"></div></div>
-      <div class="d-sec"><h3>顯示名稱（只改清單中的名稱，不改檔名）</h3><input id="dName" type="text" class="field-full" placeholder="${esc((m.name) || e.filename)}" value="${esc(e.user.display_name || '')}"></div>
-      <div class="d-sec"><h3>備註</h3><textarea id="dNotes" placeholder="購買來源、價格、授權條件、使用伺服器…">${esc(e.user.notes || '')}</textarea></div>
+      <div class="d-sec"><h3>${__('評分')}</h3><div class="stars-edit" id="dStars">${[1, 2, 3, 4, 5].map((i) => `<button data-v="${i}" class="${(e.user.rating || 0) >= i ? 'on' : ''}">★</button>`).join('')}</div></div>
+      <div class="d-sec"><h3>${__('標籤')}</h3><div class="tags-edit" id="dTags">${(e.user.tags || []).map((t) => `<span class="t">${esc(t)}<button data-t="${esc(t)}">✕</button></span>`).join('')}<input id="dTagIn" list="tagList" placeholder="${__('輸入後按 Enter')}"></div></div>
+      <div class="d-sec"><h3>${__('顯示名稱（只改清單中的名稱，不改檔名）')}</h3><input id="dName" type="text" class="field-full" placeholder="${esc((m.name) || e.filename)}" value="${esc(e.user.display_name || '')}"></div>
+      <div class="d-sec"><h3>${__('備註')}</h3><textarea id="dNotes" placeholder="${__('購買來源、價格、授權條件、使用伺服器…')}">${esc(e.user.notes || '')}</textarea></div>
 
-      <div class="d-sec"><h3>模型資訊</h3><div class="kv">
-        <span>格式</span><span>${esc(m.format || kindLabel[e.kind])}</span>
-        ${m.name ? `<span>名稱</span><span>${esc(m.name)}</span>` : ''}
-        ${m.license ? `<span>授權</span><span>${esc(m.license)}</span>` : ''}
-        ${m.pack_count ? `<span>模型數</span><span>${m.pack_count}</span>` : ''}
-        <span>狀態</span><span>${e.enabled ? '<span style="color:var(--ok)">已啟用</span>' : '已停用'}${e.source ? '（' + esc(e.source) + '）' : ''}</span>
-        <span>大小</span><span>${fmtSize(e.size)}</span>
-        <span>修改</span><span>${fmtDate(e.mtime)}</span>
-        <span>位置</span><span>${esc(e.path)}</span>
+      <div class="d-sec"><h3>${__('模型資訊')}</h3><div class="kv">
+        <span>${__('格式')}</span><span>${esc(m.format || kindLabel[e.kind])}</span>
+        ${m.name ? `<span>${__('名稱')}</span><span>${esc(m.name)}</span>` : ''}
+        ${m.license ? `<span>${__('授權')}</span><span>${esc(m.license)}</span>` : ''}
+        ${m.pack_count ? `<span>${__('模型數')}</span><span>${m.pack_count}</span>` : ''}
+        <span>${__('狀態')}</span><span>${e.enabled ? `<span style="color:var(--ok)">${__('已啟用')}</span>` : __('已停用')}${e.source ? '（' + esc(e.source) + '）' : ''}</span>
+        <span>${__('大小')}</span><span>${fmtSize(e.size)}</span>
+        <span>${__('修改')}</span><span>${fmtDate(e.mtime)}</span>
+        <span>${__('位置')}</span><span>${esc(e.path)}</span>
       </div></div>
-      ${authors ? `<div class="d-sec"><h3>作者</h3>${authors}</div>` : ''}
-      ${m.tips ? `<div class="d-sec"><h3>說明</h3><div class="note" style="white-space:pre-wrap">${esc(m.tips)}</div></div>` : ''}
-      ${e.kind === 'ysm' ? `<div class="d-sec"><h3>檔頭公開資訊</h3>${e.summary && e.summary.text ? `<div class="summary">${esc(e.summary.text)}</div>` : '<div class="muted" style="font-size:12px">這個檔案沒有可讀的公開摘要。</div>'}</div>` : ''}
+      ${authors ? `<div class="d-sec"><h3>${__('作者')}</h3>${authors}</div>` : ''}
+      ${m.tips ? `<div class="d-sec"><h3>${__('說明')}</h3><div class="note" style="white-space:pre-wrap">${esc(m.tips)}</div></div>` : ''}
+      ${e.kind === 'ysm' ? `<div class="d-sec"><h3>${__('檔頭公開資訊')}</h3>${e.summary && e.summary.text ? `<div class="summary">${esc(e.summary.text)}</div>` : `<div class="muted" style="font-size:12px">${__('這個檔案沒有可讀的公開摘要。')}</div>`}</div>` : ''}
       ${linksSection(e)}
     `;
 
@@ -1399,7 +1400,7 @@
     if (q('bPrev')) q('bPrev').onclick = () => openPreview(e);
     if (q('bToggle')) q('bToggle').onclick = guard(async () => {
       await api('set_enabled', e.id, !e.enabled);
-      toast(e.enabled ? '已停用（移到 ysm_manager_disabled，遊戲不會載入）' : '已啟用');
+      toast(e.enabled ? __('已停用（移到 ysm_manager_disabled，遊戲不會載入）') : __('已啟用'));
       const keepKey = e.key;
       await rescan();
       // 同一個模型可能倉庫和實例都有，優先選回同一個位置的那份
@@ -1419,41 +1420,41 @@
       let where;
       if (info.in_repo) {
         where = info.installs.length
-          ? `\n\n已安裝在：${info.installs.map(esc).join('、')}。\n<b>實例中的那份不會被刪除</b>，遊戲仍可使用。`
+          ? `\n\n${__('已安裝在：{0}。\n<b>實例中的那份不會被刪除</b>，遊戲仍可使用。', info.installs.map(esc).join('、'))}`
           : '';
       } else {
-        where = `\n\n只會從「${esc(info.instance)}」刪除，遊戲中就不能再使用這個模型。`
-          + (info.backup ? '\n倉庫中有這個模型，之後可以再安裝回來。' : '\n<span class="warn">倉庫中沒有這個模型的備份。</span>')
-          + (info.installs.length ? `\n${info.installs.map(esc).join('、')} 中的那份不受影響。` : '');
+        where = `\n\n${__('只會從「{0}」刪除，遊戲中就不能再使用這個模型。', esc(info.instance))}`
+          + (info.backup ? __('\n倉庫中有這個模型，之後可以再安裝回來。') : `\n<span class="warn">${__('倉庫中沒有這個模型的備份。')}</span>`)
+          + (info.installs.length ? `\n${__('{0} 中的那份不受影響。', info.installs.map(esc).join('、'))}` : '');
       }
       const fate = info.recycle
-        ? '檔案會移到<b>資源回收筒</b>，需要時可以還原。'
-        : '<span class="warn">這個磁碟沒有資源回收筒，刪除後無法復原！</span>';
+        ? `${__('檔案會移到<b>資源回收筒</b>，需要時可以還原。')}`
+        : `<span class="warn">${__('這個磁碟沒有資源回收筒，刪除後無法復原！')}</span>`;
       const r1 = await ask({
-        title: info.in_repo ? '從倉庫刪除模型' : '刪除遊戲實例中的模型',
-        body: `要刪除「<b>${esc(displayName(e))}</b>」嗎？\n${esc(info.name)}（${esc(info.size)}）${where}\n\n${fate}`,
-        ok: '刪除', danger: true,
+        title: info.in_repo ? __('從倉庫刪除模型') : __('刪除遊戲實例中的模型'),
+        body: `${__('要刪除「<b>{0}</b>」嗎？\n{1}（{2}）{3}\n\n{4}', esc(displayName(e)), esc(info.name), esc(info.size), where, fate)}`,
+        ok: __('刪除'), danger: true,
       });
       if (!r1.ok) return;
       if (!S.settings || S.settings.confirm_delete_twice !== false) {
         const r2 = await ask({
-          title: '再次確認',
-          body: `真的要刪除「<b>${esc(displayName(e))}</b>」嗎？\n\n${fate}`,
-          ok: '確定刪除', cancel: '不要刪除', danger: true,
+          title: __('再次確認'),
+          body: `${__('真的要刪除「<b>{0}</b>」嗎？\n\n{1}', esc(displayName(e)), fate)}`,
+          ok: __('確定刪除'), cancel: __('不要刪除'), danger: true,
         });
         if (!r2.ok) return;
       }
       const res = await api('delete_model', e.id);
-      toast(res.recycled ? '已刪除（已移到資源回收筒）' : '已永久刪除');
+      toast(res.recycled ? __('已刪除（已移到資源回收筒）') : __('已永久刪除'));
       S.sel = null;
       await rescan();
     });
     q('bRename').onclick = guard(async () => {
       const base = e.kind === 'folder' ? e.filename : e.filename.replace(/\.[^.]+$/, '');
-      const n = await promptBox('重新命名', '新的檔名（遊戲中的模型 ID 會隨之改變）：', base);
+      const n = await promptBox(__('重新命名'), __('新的檔名（遊戲中的模型 ID 會隨之改變）：'), base);
       if (!n || n === base) return;
       const res = await api('rename', e.id, n);
-      toast('已重新命名');
+      toast(__('已重新命名'));
       await rescan();
       const again = S.entries.find((x) => x.path === res.path);
       if (again) { S.sel = again.id; renderGrid(); renderDetail(); }
@@ -1517,12 +1518,12 @@
   // ---------------- 設定 ----------------
   function renderSettings() {
     const st = S.settings || {};
-    $('setLang').value = st.lang || 'zh-Hant';
+    $('setLang').value = st.lang || 'auto';
     $('setGroupVer').checked = st.group_versions !== false;
     $('setConfirmCopy').checked = st.confirm_copy !== false;
     $('setConfirmDel').checked = st.confirm_delete_twice !== false;
-    $('setRepoPath').textContent = S.repo || '尚未設定';
-    $('setRepoChange').textContent = S.repo ? '更換…' : '設定…';
+    $('setRepoPath').textContent = S.repo || __('尚未設定');
+    $('setRepoChange').textContent = S.repo ? __('更換…') : __('設定…');
     $('setRepoOpen').disabled = !S.repo;
     $('setDataPath').textContent = st.data_dir_now || '';
     $('setDataReset').disabled = !st.data_dir;
@@ -1534,8 +1535,15 @@
     renderSettings();
     $('settingsModal').hidden = false;
   });
-  const saveSetting = (patch) => guard(async () => { S.settings = await api('set_settings', patch()); renderSettings(); toast('已儲存設定'); });
-  $('setLang').onchange = saveSetting(() => ({ lang: $('setLang').value }));
+  const saveSetting = (patch) => guard(async () => { S.settings = await api('set_settings', patch()); renderSettings(); toast(__('已儲存設定')); });
+  // 換語言：存好設定後帶著新語言重新載入頁面
+  $('setLang').onchange = guard(async () => {
+    S.settings = await api('set_settings', { lang: $('setLang').value });
+    const q = new URLSearchParams(location.search);
+    if (S.settings.lang_effective === I18N.lang) { renderSettings(); toast(__('已儲存設定')); return; }
+    q.set('lang', S.settings.lang_effective);
+    location.search = q.toString();
+  });
   $('setConfirmCopy').onchange = saveSetting(() => ({ confirm_copy: $('setConfirmCopy').checked }));
   $('setGroupVer').onchange = guard(async () => {
     S.settings = await api('set_settings', { group_versions: $('setGroupVer').checked });
@@ -1553,19 +1561,19 @@
   $('setDataOpen').onclick = guard(() => api('open_special_dir', 'data'));
   async function moveData(target) {
     const r = await ask({
-      title: '搬移管理器資料',
-      body: `把標籤、評分、備註和縮圖搬到：\n<b>${esc(target)}</b>\n\n會先複製到新位置，成功後才刪除舊位置的檔案。`,
-      ok: '搬移',
+      title: __('搬移管理器資料'),
+      body: `${__('把標籤、評分、備註和縮圖搬到：\n<b>{0}</b>\n\n會先複製到新位置，成功後才刪除舊位置的檔案。', esc(target))}`,
+      ok: __('搬移'),
     });
     if (!r.ok) return;
     S.settings = await api('move_data_dir', target);
     renderSettings();
-    toast('已搬移到 ' + S.settings.data_dir_now);
+    toast(__('已搬移到 {0}', S.settings.data_dir_now));
   }
   $('setDataChange').onclick = guard(async () => {
     const r = await api('pick_folder');
     let path = r && r.path;
-    if (r && r.unsupported) path = await promptBox('搬移管理器資料', '輸入新的資料夾路徑：', S.settings.data_dir_now);
+    if (r && r.unsupported) path = await promptBox(__('搬移管理器資料'), __('輸入新的資料夾路徑：'), S.settings.data_dir_now);
     if (!path) return;
     await moveData(path);
   });
@@ -1576,11 +1584,11 @@
     try {
       const u = await api('uninstall_info');
       $('unRestoreText').textContent = u.disabled
-        ? `把 ${u.disabled} 個停用的模型移回原位（否則遊戲不會讀取它們）`
-        : '把停用的模型移回原位（目前沒有停用的模型）';
+        ? __('把 {0} 個停用的模型移回原位（否則遊戲不會讀取它們）', u.disabled)
+        : __('把停用的模型移回原位（目前沒有停用的模型）');
       $('unModText').textContent = u.mod_instances.length
-        ? `同時移除遊戲實例中的 YSM Shot MOD（${u.mod_instances.join('、')}）`
-        : '同時移除各遊戲實例中的 YSM Shot MOD（目前沒有安裝）';
+        ? __('同時移除遊戲實例中的 YSM Shot MOD（{0}）', u.mod_instances.join('、'))
+        : __('同時移除各遊戲實例中的 YSM Shot MOD（目前沒有安裝）');
     } catch (e) { /* 忽略 */ }
   }
   $('btnSettings').addEventListener('click', renderUninstall);
@@ -1588,26 +1596,26 @@
     const u = await api('uninstall_info');
     const restore = $('unRestore').checked, mod = $('unMod').checked;
     const steps = [];
-    if (restore && u.disabled) steps.push(`把 ${u.disabled} 個停用的模型移回原位`);
-    if (mod && u.mod_instances.length) steps.push(`從 ${u.mod_instances.map(esc).join('、')} 移除 YSM Shot MOD`);
-    steps.push('關閉管理器');
-    steps.push(`刪除管理器的資料（設定、標籤、評分、備註、縮圖）\n　<small>${esc(u.data_dir)}</small>`);
-    if (u.exe) steps.push(`刪除程式本身\n　<small>${esc(u.exe)}</small>`);
+    if (restore && u.disabled) steps.push(__('把 {0} 個停用的模型移回原位', u.disabled));
+    if (mod && u.mod_instances.length) steps.push(__('從 {0} 移除 YSM Shot MOD', u.mod_instances.map(esc).join('、')));
+    steps.push(__('關閉管理器'));
+    steps.push(`${__('刪除管理器的資料（設定、標籤、評分、備註、縮圖）\n　<small>{0}</small>', esc(u.data_dir))}`);
+    if (u.exe) steps.push(`${__('刪除程式本身\n　<small>{0}</small>', esc(u.exe))}`);
     const r1 = await ask({
-      title: '解除安裝 YSM 模型管理器',
-      body: `將會：\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n<b>遊戲、倉庫和所有模型檔案都不會被刪除。</b>`
-        + (!restore && u.disabled ? `\n<span class="warn">你選擇不移回停用的模型：那 ${u.disabled} 個模型會留在 ysm_manager_disabled 資料夾，遊戲不會讀取。</span>` : ''),
-      ok: '解除安裝', danger: true,
+      title: __('解除安裝 YSM 模型管理器'),
+      body: `${__('將會：\n{0}\n\n<b>遊戲、倉庫和所有模型檔案都不會被刪除。</b>', steps.map((s, i) => `${i + 1}. ${s}`).join('\n'))}`
+        + (!restore && u.disabled ? `\n<span class="warn">${__('你選擇不移回停用的模型：那 {0} 個模型會留在 ysm_manager_disabled 資料夾，遊戲不會讀取。', u.disabled)}</span>` : ''),
+      ok: __('解除安裝'), danger: true,
     });
     if (!r1.ok) return;
     const r2 = await ask({
-      title: '再次確認',
-      body: '確定要解除安裝嗎？\n標籤、評分、備註和縮圖刪除後<span class="warn">無法復原</span>。',
-      ok: '確定解除安裝', cancel: '不要', danger: true,
+      title: __('再次確認'),
+      body: `${__('確定要解除安裝嗎？\n標籤、評分、備註和縮圖刪除後')}<span class="warn">${__('無法復原')}</span>。`,
+      ok: __('確定解除安裝'), cancel: __('不要'), danger: true,
     });
     if (!r2.ok) return;
     await api('uninstall_app', restore, mod);
-    document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:16px;color:#aaa">已解除安裝，管理器即將關閉…</div>';
+    document.body.innerHTML = `<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:16px;color:#aaa">${__('已解除安裝，管理器即將關閉…')}</div>`;
   });
 
   // ---------------- 截圖挑選 ----------------
@@ -1615,8 +1623,8 @@
     const shots = await api('list_screenshots');
     const g = $('shotGrid');
     g.innerHTML = '';
-    $('shotDir').textContent = shots.length ? `最近 ${shots.length} 張（依時間排序）` : '';
-    if (!shots.length) g.innerHTML = '<div class="muted" style="padding:20px">找不到遊戲截圖資料夾或沒有截圖。在遊戲中按 F2 截圖後再試一次，或改用「選擇圖片」。</div>';
+    $('shotDir').textContent = shots.length ? __('最近 {0} 張（依時間排序）', shots.length) : '';
+    if (!shots.length) g.innerHTML = `<div class="muted" style="padding:20px">${__('找不到遊戲截圖資料夾或沒有截圖。在遊戲中按 F2 截圖後再試一次，或改用「選擇圖片」。')}</div>`;
     for (const s of shots) {
       const f = document.createElement('figure');
       f.innerHTML = `<img loading="lazy" src="/api/shot?p=${encodeURIComponent(s.path)}&${tq}" alt=""><figcaption>${esc(s.name)}</figcaption>`;
@@ -1635,7 +1643,7 @@
   const ASPECT = 3 / 4;
 
   function loadImage(src) {
-    return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('圖片讀取失敗')); i.src = src; });
+    return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(__('圖片讀取失敗'))); i.src = src; });
   }
 
   const openCropFromBlob = guard(async (blob) => {
@@ -1739,7 +1747,7 @@
     if (!e || !crop.img) return;
     await saveThumbFor(e, cropToDataURL(crop.img, crop.x, crop.y, crop.h));
     closeModal($('cropModal'));
-    toast('縮圖已更新');
+    toast(__('縮圖已更新'));
   });
 
   // ---------------- 3D 預覽 ----------------
@@ -1777,18 +1785,18 @@
     previewEntry = e;
     $('btnCapture').hidden = false;
     $('previewTitle').textContent = displayName(e);
-    $('previewStatus').textContent = '載入中…';
+    $('previewStatus').textContent = __('載入中…');
     $('previewModal').hidden = false;
     await loadIntoViewer(e, $('previewFrame'));
-    $('previewStatus').textContent = '左鍵旋轉、右鍵平移、滾輪縮放；調好角度後可設為縮圖';
+    $('previewStatus').textContent = __('左鍵旋轉、右鍵平移、滾輪縮放；調好角度後可設為縮圖');
   });
 
   // 獨立的模型預覽器（和網頁版 index.html 相同）：可拖入任何資料夾 / .zip，不需要先加入倉庫
   $('btnViewer').onclick = () => {
     previewEntry = null;
     $('btnCapture').hidden = true;
-    $('previewTitle').textContent = 'YSM 模型預覽器';
-    $('previewStatus').textContent = '把模型資料夾或 .zip 拖進來，或用右上角的「開啟資料夾」「開啟 .zip」';
+    $('previewTitle').textContent = __('YSM 模型預覽器');
+    $('previewStatus').textContent = __('把模型資料夾或 .zip 拖進來，或用右上角的「開啟資料夾」「開啟 .zip」');
     $('previewModal').hidden = false;
     $('previewFrame').src = 'index.html?n=' + Date.now();
   };
@@ -1812,14 +1820,14 @@
   // ---------------- 批次縮圖 ----------------
   $('btnBatch').onclick = guard(async () => {
     const todo = S.entries.filter((e) => e.previewable && !e.user.thumb);
-    if (!todo.length) { toast('所有可預覽的模型都已經有縮圖了（加密 .ysm 需在遊戲中截圖）'); return; }
-    if (!(await confirmBox('批次產生縮圖', `將為 ${todo.length} 個可預覽的模型自動產生縮圖，繼續？`, { ok: '開始' }))) return;
+    if (!todo.length) { toast(__('所有可預覽的模型都已經有縮圖了（加密 .ysm 需在遊戲中截圖）')); return; }
+    if (!(await confirmBox(__('批次產生縮圖'), __('將為 {0} 個可預覽的模型自動產生縮圖，繼續？', todo.length), { ok: __('開始') }))) return;
     const ifr = $('previewFrame');
     $('previewModal').hidden = false;
     let done = 0;
     for (const e of todo) {
       if ($('previewModal').hidden) break; // 使用者中止
-      $('previewTitle').textContent = `批次產生縮圖 ${done + 1} / ${todo.length}`;
+      $('previewTitle').textContent = __('批次產生縮圖 {0} / {1}', done + 1, todo.length);
       $('previewStatus').textContent = displayName(e);
       try {
         const w = await loadIntoViewer(e, ifr);
@@ -1834,7 +1842,7 @@
       } catch (err) { console.warn(err); }
     }
     closeModal($('previewModal'));
-    toast(`已產生 ${done} 張縮圖`);
+    toast(__('已產生 {0} 張縮圖', done));
   });
 
   // ---------------- 遊戲內截圖 ----------------
@@ -1863,21 +1871,21 @@
     for (const r of G.rows) {
       const bad = !!G.ids && !G.ids.has(unquote(r.idIn.value.trim()));
       r.idIn.classList.toggle('bad', bad);
-      r.idIn.title = bad ? '遊戲中沒有這個模型 ID（可能是 YSM 沒有載入這個檔案，或 ID 要修改）' : '模型 ID';
+      r.idIn.title = bad ? __('遊戲中沒有這個模型 ID（可能是 YSM 沒有載入這個檔案，或 ID 要修改）') : __('模型 ID');
     }
   }
 
   function gStatus(msg, err) { const s = $('gStatus'); s.textContent = msg; s.className = 'g-status' + (err ? ' err' : ''); }
   function gCropInfo() {
     const c = LS.get('crop', null);
-    $('gCropInfo').textContent = c ? '已設定縮圖範圍（試拍可重新設定）' : '尚未設定縮圖範圍：請先「試拍第一個」';
+    $('gCropInfo').textContent = c ? __('已設定縮圖範圍（試拍可重新設定）') : __('尚未設定縮圖範圍：請先「試拍第一個」');
   }
 
   const refreshWindows = guard(async () => {
     const wins = await api('game_windows');
     const sel = $('gWin');
     const prev = sel.value;
-    sel.innerHTML = wins.length ? '' : '<option value="">找不到遊戲視窗，請先開啟遊戲</option>';
+    sel.innerHTML = wins.length ? '' : `<option value="">${__('找不到遊戲視窗，請先開啟遊戲')}</option>`;
     for (const w of wins) { const o = document.createElement('option'); o.value = w.hwnd; o.textContent = w.title; sel.appendChild(o); }
     if (wins.some((w) => String(w.hwnd) === prev)) sel.value = prev;
   });
@@ -1890,14 +1898,14 @@
     G.rows = list.map((e) => ({ e, checked: !onlyNew || !e.user.thumb }));
     const box = $('gList');
     box.innerHTML = '';
-    if (!list.length) box.innerHTML = '<div class="muted" style="padding:12px">這個實例中沒有已啟用的模型。</div>';
+    if (!list.length) box.innerHTML = `<div class="muted" style="padding:12px">${__('這個實例中沒有已啟用的模型。')}</div>`;
     for (const r of G.rows) {
       const th = thumbURL(r.e);
       const row = document.createElement('div');
       row.className = 'g-row';
       row.innerHTML = `<input type="checkbox" ${r.checked ? 'checked' : ''}><span class="th" ${th ? `style="background-image:url('${th}')"` : ''}></span>
         <span class="nm"><b>${esc(displayName(r.e))}</b><span>${esc(r.e.rel)}</span></span>
-        <input type="text" spellcheck="false" value="${esc(modelIdOf(r.e))}" title="模型 ID">`;
+        <input type="text" spellcheck="false" value="${esc(modelIdOf(r.e))}" title="${__('模型 ID')}">`;
       const [cb, idIn] = row.querySelectorAll('input');
       cb.onchange = () => { r.checked = cb.checked; gCount(); };
       idIn.onchange = () => {
@@ -1914,11 +1922,11 @@
     markIds();
     gCount();
   }
-  function gCount() { $('gCount').textContent = `已選 ${G.rows.filter((r) => r.checked).length} / ${G.rows.length}`; }
+  function gCount() { $('gCount').textContent = __('已選 {0} / {1}', G.rows.filter((r) => r.checked).length, G.rows.length); }
 
   $('btnGame').onclick = async () => {
     const insts = S.instances.filter((i) => i.is_instance);
-    if (!insts.length) { toast('請先加入遊戲實例（左側「遊戲實例」）', true); return; }
+    if (!insts.length) { toast(__('請先加入遊戲實例（左側「遊戲實例」）'), true); return; }
     const sel = $('gInst');
     sel.innerHTML = insts.map((i) => `<option value="${esc(i.root)}">${esc(i.name)}</option>`).join('');
     const last = LS.get('inst', '');
@@ -1966,7 +1974,7 @@
   $('gYaw').onchange = () => LS.set('yaw', Number($('gYaw').value));
   $('gInstallMod').onclick = guard(async () => {
     const res = await api('install_bridge_mod', $('gInst').value);
-    gStatus(`已安裝 YSM Shot 到 ${res.path}${res.removed.length ? `（已移除舊版 ${res.removed.join('、')}）` : ''}。這個實例還需要 Forge 1.20.1 和 YSM，重新啟動遊戲後生效。`);
+    gStatus(__('已安裝 YSM Shot 到 {0}{1}。這個實例還需要 Forge 1.20.1 和 YSM，重新啟動遊戲後生效。', res.path, res.removed.length ? __('（已移除舊版 {0}）', res.removed.join('、')) : ''));
   });
   async function loadIds() {
     G.ids = new Set(await api('bridge_ids', $('gInst').value));
@@ -1974,15 +1982,15 @@
     return G.ids.size;
   }
   $('gPing').onclick = guard(async () => {
-    gStatus('連線中…');
+    gStatus(__('連線中…'));
     try {
       const s = await api('bridge_status', $('gInst').value);
-      if (!s.inWorld) gStatus(`已連上 YSM Shot（Minecraft ${s.mc}），但還沒進入世界。請進入單人世界。`, true);
-      else if (s.paused) gStatus('已連上，但遊戲目前暫停中。請關閉選單，並按 F3+P 關閉「失去焦點時暫停」。', true);
+      if (!s.inWorld) gStatus(__('已連上 YSM Shot（Minecraft {0}），但還沒進入世界。請進入單人世界。', s.mc), true);
+      else if (s.paused) gStatus(__('已連上，但遊戲目前暫停中。請關閉選單，並按 F3+P 關閉「失去焦點時暫停」。'), true);
       else {
         const n = await loadIds();
         const bad = G.rows.filter((r) => r.idIn.classList.contains('bad')).length;
-        gStatus(`已連上 YSM Shot：Minecraft ${s.mc}，玩家 ${s.player}，遊戲中有 ${n} 個模型${bad ? `；清單中 ${bad} 個的 ID 在遊戲中找不到（紅框），批次截圖時會略過` : ''}${s.pauseOnLostFocus ? '。提醒：切到其他視窗時遊戲會暫停，建議在遊戲中按 F3+P 關閉' : '。'}`);
+        gStatus(__('已連上 YSM Shot：Minecraft {0}，玩家 {1}，遊戲中有 {2} 個模型{3}{4}', s.mc, s.player, n, bad ? __('；清單中 {0} 個的 ID 在遊戲中找不到（紅框），批次截圖時會略過', bad) : '', s.pauseOnLostFocus ? __('。提醒：切到其他視窗時遊戲會暫停，建議在遊戲中按 F3+P 關閉') : '。'));
       }
     } catch (e) { gStatus(e.message, true); }
   });
@@ -2001,7 +2009,7 @@
         if (px[(y * iw + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       }
     }
-    if (x1 < 0) throw new Error('畫面是空的：沒有拍到角色（角色可能隱形或模型還沒載入，可把等待秒數調長）');
+    if (x1 < 0) throw Object.assign(new Error(__('畫面是空的：沒有拍到角色（角色可能隱形或模型還沒載入，可把等待秒數調長）')), { empty: true });
     const pad = 0.06;
     let w = x1 - x0 + 1, h = y1 - y0 + 1;
     let H = Math.max(h, w / ASPECT) * (1 + pad * 2);
@@ -2028,11 +2036,11 @@
   function showMsgs(r, shot) {
     r.el.querySelector('.msg')?.remove();
     const notes = [...shot.messages];
-    if (shot.clipped) notes.push('角色超出畫面，請把「角色大小」調小');
+    if (shot.clipped) notes.push(__('角色超出畫面，請把「角色大小」調小'));
     if (!notes.length) return false;
     const m = document.createElement('span');
     m.className = 'msg';
-    m.textContent = '遊戲訊息：' + notes.join('／');
+    m.textContent = __('遊戲訊息：') + notes.join('／');
     r.el.appendChild(m);
     return true;
   }
@@ -2049,7 +2057,7 @@
 
   async function gameShot(cmds, wait) {
     const hwnd = $('gWin').value;
-    if (!hwnd) throw new Error('請先選擇遊戲視窗（開啟遊戲後按「重新整理」）');
+    if (!hwnd) throw new Error(__('請先選擇遊戲視窗（開啟遊戲後按「重新整理」）'));
     const res = await api('game_shot', hwnd, $('gInst').value, cmds, wait);
     const blob = await (await fetch(`/api/shot?p=${encodeURIComponent(res.path)}&${tq}`)).blob();
     return loadImage(URL.createObjectURL(blob));
@@ -2062,7 +2070,7 @@
   $('gCutout').onchange = () => LS.set('cutout', $('gCutout').checked);
   async function takePlate() {
     G.plate = null;
-    gStatus('去背準備：先讓角色隱形，拍一張空背景…（請不要動鍵盤滑鼠）');
+    gStatus(__('去背準備：先讓角色隱形，拍一張空背景…（請不要動鍵盤滑鼠）'));
     G.plate = await gameShot([INVIS_ON], 1);
     G.invis = true;
   }
@@ -2130,7 +2138,7 @@
     let sizes = regions(1);
     const minFg = N * 0.0015;
     for (let i = 0; i < N; i++) if (fg[i] && sizes[lab[i]] < minFg) fg[i] = 0;
-    if (!fg.some((v) => v)) throw new Error('去背失敗：截圖和空背景幾乎一樣。可能是模型沒有切換、隱形時模型仍然顯示，或視角有移動；可以取消勾選「去除遊戲背景」');
+    if (!fg.some((v) => v)) throw new Error(__('去背失敗：截圖和空背景幾乎一樣。可能是模型沒有切換、隱形時模型仍然顯示，或視角有移動；可以取消勾選「去除遊戲背景」'));
     // 補洞：被角色包住（沒碰到邊緣）、又不太大的背景區塊，視為角色內部和背景同色的部分
     sizes = regions(0);
     const touch = new Uint8Array(sizes.length);
@@ -2170,21 +2178,21 @@
   $('gTest').onclick = guard(async () => {
     if (G.running) return;
     const r = G.rows.find((x) => x.checked) || G.rows[0];
-    if (!r) { toast('沒有可截圖的模型', true); return; }
+    if (!r) { toast(__('沒有可截圖的模型'), true); return; }
     G.running = true;
     if (G.mode === 'mod') {
-      gStatus(`試拍：${displayName(r.e)}…`);
+      gStatus(__('試拍：{0}…', displayName(r.e)));
       try {
         const shot = await modOne(r);
-        gStatus(`拍好了，已存成「${displayName(r.e)}」的縮圖。請確認是正確的模型${shot.messages.length ? '，並看看下方的遊戲訊息' : ''}，再「開始批次截圖」。`);
+        gStatus(__('拍好了，已存成「{0}」的縮圖。請確認是正確的模型{1}，再「開始批次截圖」。', displayName(r.e), shot.messages.length ? __('，並看看下方的遊戲訊息') : ''));
       } catch (e) { setRowState(r, 'err'); gStatus(e.message, true); } finally { G.running = false; }
       return;
     }
     try {
       if (cutoutOn()) await takePlate(); else G.plate = null;
-      gStatus(`試拍：${displayName(r.e)}…（請不要動鍵盤滑鼠）`);
+      gStatus(__('試拍：{0}…（請不要動鍵盤滑鼠）', displayName(r.e)));
       const img = await shootOne(r);
-      gStatus('拍好了。請確認畫面中的模型已切換成「' + displayName(r.e) + '」，再框出縮圖範圍。');
+      gStatus(__('拍好了。請確認畫面中的模型已切換成「{0}」，再框出縮圖範圍。', displayName(r.e)));
       openCrop(img, async (rect) => {
         const iw = img.naturalWidth, ih = img.naturalHeight;
         LS.set('crop', { fx: rect.x / iw, fy: rect.y / ih, fh: rect.h / ih });
@@ -2192,7 +2200,7 @@
         setRowState(r, 'done');
         r.el.querySelector('.th').style.backgroundImage = `url('${thumbURL(r.e)}')`;
         gCropInfo();
-        gStatus('已設定縮圖範圍並存好第一張。可以「開始批次截圖」了。');
+        gStatus(__('已設定縮圖範圍並存好第一張。可以「開始批次截圖」了。'));
       }, LS.get('crop', null));
     } catch (e) {
       setRowState(r, 'err');
@@ -2203,9 +2211,9 @@
   $('gStart').onclick = guard(async () => {
     if (G.running) return;
     const rel = LS.get('crop', null);
-    if (G.mode === 'keys' && !rel) { toast('請先「試拍第一個」並設定縮圖範圍', true); return; }
+    if (G.mode === 'keys' && !rel) { toast(__('請先「試拍第一個」並設定縮圖範圍'), true); return; }
     const todo = G.rows.filter((r) => r.checked);
-    if (!todo.length) { toast('請勾選要截圖的模型', true); return; }
+    if (!todo.length) { toast(__('請勾選要截圖的模型'), true); return; }
     G.running = true;
     G.stop = false;
     G.paused = false;
@@ -2217,8 +2225,8 @@
         if (!G.ids) await loadIds();
         for (const r of todo) {
           if (r.idIn.classList.contains('bad')) { setRowState(r, 'err'); skipped++; continue; }
-          if (await checkpoint(done, todo.length)) { gStatus(`已停止：完成 ${done} 個，還有 ${todo.length - done - failed - skipped} 個沒拍（仍保持勾選，可再按「開始批次截圖」繼續）。`); return; }
-          gStatus(`截圖中 ${done + failed + skipped + 1} / ${todo.length}：${displayName(r.e)}`);
+          if (await checkpoint(done, todo.length)) { gStatus(__('已停止：完成 {0} 個，還有 {1} 個沒拍（仍保持勾選，可再按「開始批次截圖」繼續）。', done, todo.length - done - failed - skipped)); return; }
+          gStatus(__('截圖中 {0} / {1}：{2}', done + failed + skipped + 1, todo.length, displayName(r.e)));
           try {
             const shot = await modOne(r);
             if (shot.messages.length || shot.clipped) warned++;
@@ -2227,18 +2235,18 @@
             setRowState(r, 'err');
             failed++;
             // 連線或遊戲狀態問題會讓後面全部失敗，直接停止
-            if (!/畫面是空的/.test(e.message)) { gStatus(`已完成 ${done} 個，在「${displayName(r.e)}」停止：${e.message}`, true); return; }
+            if (!e.empty) { gStatus(__('已完成 {0} 個，在「{1}」停止：{2}', done, displayName(r.e), e.message), true); return; }
           }
         }
-        gStatus(`完成 ${done} 個${skipped ? `，略過 ${skipped} 個遊戲中找不到 ID 的（紅框）` : ''}${failed ? `，${failed} 個沒拍到角色` : ''}${warned ? `，${warned} 個有遊戲訊息（黃色），請檢查模型 ID 是否正確` : ''}。`, failed > 0 || skipped > 0);
+        gStatus(__('完成 {0} 個{1}{2}{3}。', done, skipped ? __('，略過 {0} 個遊戲中找不到 ID 的（紅框）', skipped) : '', failed ? __('，{0} 個沒拍到角色', failed) : '', warned ? __('，{0} 個有遊戲訊息（黃色），請檢查模型 ID 是否正確', warned) : ''), failed > 0 || skipped > 0);
         return;
       }
       if (cutoutOn()) {
         try { await takePlate(); } catch (e) { gStatus(e.message, true); return; }
       } else G.plate = null;
       for (const r of todo) {
-        if (await checkpoint(done, todo.length)) { gStatus(`已停止：完成 ${done} 個，還有 ${todo.length - done} 個沒拍（仍保持勾選，可再按「開始批次截圖」繼續）。`); return; }
-        gStatus(`截圖中 ${done + 1} / ${todo.length}：${displayName(r.e)}（切換到其他視窗即可停止）`);
+        if (await checkpoint(done, todo.length)) { gStatus(__('已停止：完成 {0} 個，還有 {1} 個沒拍（仍保持勾選，可再按「開始批次截圖」繼續）。', done, todo.length - done)); return; }
+        gStatus(__('截圖中 {0} / {1}：{2}（切換到其他視窗即可停止）', done + 1, todo.length, displayName(r.e)));
         try {
           const img = await shootOne(r);
           const a = relToAbs(img, rel);
@@ -2250,11 +2258,11 @@
           done++;
         } catch (e) {
           setRowState(r, 'err');
-          gStatus(`已完成 ${done} 個，在「${displayName(r.e)}」停止：${e.message}`, true);
+          gStatus(__('已完成 {0} 個，在「{1}」停止：{2}', done, displayName(r.e), e.message), true);
           return;
         }
       }
-      gStatus(`全部完成，共 ${done} 個。可以把模型切回你原本用的，並按 F1 恢復介面。`);
+      gStatus(__('全部完成，共 {0} 個。可以把模型切回你原本用的，並按 F1 恢復介面。', done));
     } finally {
       G.running = false;
       G.paused = false;
@@ -2268,11 +2276,11 @@
     $('gStart').disabled = $('gTest').disabled = running;
     $('gPause').hidden = $('gStop').hidden = !running;
     $('gStop').disabled = false;
-    $('gPause').textContent = '暫停';
+    $('gPause').textContent = __('暫停');
   }
   async function checkpoint(done, total) {
     if (G.paused && !G.stop) {
-      gStatus(`已暫停（完成 ${done} / ${total}）。按「繼續」接著拍，或「停止」結束。`);
+      gStatus(__('已暫停（完成 {0} / {1}）。按「繼續」接著拍，或「停止」結束。', done, total));
       while (G.paused && !G.stop) await new Promise((res) => setTimeout(res, 200));
     }
     return G.stop;
@@ -2280,14 +2288,14 @@
   $('gPause').onclick = () => {
     if (!G.running) return;
     G.paused = !G.paused;
-    $('gPause').textContent = G.paused ? '繼續' : '暫停';
-    if (G.paused) gStatus('暫停中…目前這個模型拍完後就會暫停。');
+    $('gPause').textContent = G.paused ? __('繼續') : __('暫停');
+    if (G.paused) gStatus(__('暫停中…目前這個模型拍完後就會暫停。'));
   };
   $('gStop').onclick = () => {
     if (!G.running) return;
     G.stop = true;
     $('gStop').disabled = true;
-    gStatus('停止中…目前這個模型拍完後就會停止。');
+    gStatus(__('停止中…目前這個模型拍完後就會停止。'));
   };
 
   // ---------------- 啟動 ----------------
@@ -2298,6 +2306,6 @@
       $('footInfo').textContent = '';
       if (S.roots.length) await rescan();
       else { renderAll(); $('btnDetect').click(); }
-    } catch (e) { toast('無法連線到程式後端：' + e.message, true); }
+    } catch (e) { toast(__('無法連線到程式後端：') + e.message, true); }
   })();
 })();

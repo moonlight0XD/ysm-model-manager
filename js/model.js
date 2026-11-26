@@ -24,7 +24,7 @@
         geo = { description: { identifier: k, texture_width: g.texturewidth, texture_height: g.textureheight }, bones: g.bones };
       }
     }
-    if (!geo) throw new Error('不是有效的基岩版幾何檔');
+    if (!geo) throw new Error(__('不是有效的基岩版幾何檔'));
     const d = geo.description || {};
     return {
       identifier: d.identifier || '',

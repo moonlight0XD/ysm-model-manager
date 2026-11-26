@@ -30,7 +30,7 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '1.0.1'
+APP_VERSION = '1.1.0'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
@@ -41,7 +41,7 @@ else:
 BASE_DIR = os.environ.get('YSM_MANAGER_DATA') or os.path.join(os.environ.get('APPDATA') or os.path.expanduser('~'), 'YSMModelManager')
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 DEFAULT_SETTINGS = {
-    'lang': 'zh-Hant',            # 目前只有繁體中文
+    'ui_lang': 'auto',            # 介面語言：auto（跟隨系統）、zh-Hant、zh-Hans、en
     'confirm_copy': True,         # 無法硬連結時，改用複製前先詢問
     'confirm_delete_twice': True, # 刪除倉庫模型時確認兩次
     'group_versions': True,       # 同角色的不同版本合併成一張卡
@@ -68,6 +68,55 @@ def save_settings():
 
 
 SETTINGS = load_settings()
+
+# ---- 介面語言：翻譯表和前端共用 js/i18n_data.js，原文（繁體中文）就是鍵 ----
+LANGS = ('zh-Hant', 'zh-Hans', 'en')
+
+
+def _load_i18n():
+    try:
+        with open(os.path.join(APP_DIR, 'js', 'i18n_data.js'), encoding='utf-8') as f:
+            s = f.read()
+        s = s[s.index('I18N_DATA'):]
+        return json.loads(s[s.index('{'):s.rindex('}') + 1])
+    except (OSError, ValueError):
+        return {}
+
+
+I18N_DATA = _load_i18n()
+_SYS_LANG = None
+
+
+def system_lang():
+    global _SYS_LANG
+    if _SYS_LANG is None:
+        name = ''
+        try:
+            import ctypes
+            import locale
+            name = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage(), '')
+        except Exception:
+            try:
+                import locale
+                name = locale.getlocale()[0] or ''
+            except Exception:
+                pass
+        n = name.lower().replace('-', '_')
+        _SYS_LANG = ('zh-Hans' if re.search(r'_(cn|sg)|hans', n) else 'zh-Hant') if n.startswith('zh') else 'en'
+    return _SYS_LANG
+
+
+def effective_lang():
+    v = SETTINGS.get('ui_lang')
+    return v if v in LANGS else system_lang()
+
+
+def T(text, *args):
+    """翻譯介面文字；{0}、{1}… 依序換成 args"""
+    v = (I18N_DATA.get(effective_lang()) or {}).get(text, text)
+    if args:
+        v = re.sub(r'\{(\d+)\}', lambda m: str(args[int(m.group(1))]) if int(m.group(1)) < len(args) else '', v)
+    return v
 DATA_DIR = SETTINGS['data_dir'] if SETTINGS['data_dir'] and os.path.isdir(SETTINGS['data_dir']) else BASE_DIR
 THUMB_DIR = os.path.join(DATA_DIR, 'thumbs')
 DB_PATH = os.path.join(DATA_DIR, 'library.json')
@@ -140,18 +189,18 @@ def collect_links(m):
             u = u.rstrip('.,;:!?')
             if len(u) < 2000 and not any(x['url'] == u for x in links):
                 links.append({'label': label, 'url': u})
-    add('說明中的連結', m.get('tips'))
+    add(T('說明中的連結'), m.get('tips'))
     lic = m.get('license')
     if isinstance(lic, dict):
-        add('授權說明中的連結', lic.get('desc'))
+        add(T('授權說明中的連結'), lic.get('desc'))
     for a in m.get('authors') or []:
         if isinstance(a, dict) and isinstance(a.get('contact'), dict):
             for k, v in a['contact'].items():
-                add(f"{a.get('name') or '作者'}：{k}", v)
+                add(T('{0}：{1}', a.get('name') or T('作者'), k), v)
     link = m.get('link')
     if isinstance(link, dict):
         for k, v in link.items():
-            add({'home': '模型主頁', 'donate': '贊助'}.get(k, str(k)), v)
+            add({'home': T('模型主頁'), 'donate': T('贊助')}.get(k, str(k)), v)
     return links[:20]
 
 
@@ -274,7 +323,7 @@ def folder_meta(path):
     if os.path.isfile(p):
         j = loose_json(read_text(p))
         meta = norm_meta(j.get('metadata'))
-        meta['format'] = '2.x 資料夾'
+        meta['format'] = T('2.x 資料夾')
         return meta
     meta = {}
     m = os.path.join(path, 'main.json')
@@ -289,7 +338,7 @@ def folder_meta(path):
             meta.update({k: v for k, v in norm_meta(loose_json(read_text(info))).items() if v})
         except Exception:
             pass
-    meta['format'] = '1.x 舊版資料夾'
+    meta['format'] = T('1.x 舊版資料夾')
     return meta
 
 
@@ -302,7 +351,7 @@ def zip_meta(path):
         pack = [(n, i) for n, i in infos if n.lower().rsplit('/', 1)[-1] == 'ysm-pack.json']
         inner_ysm = [n for n, _ in infos if n.lower().endswith('.ysm')]
         if len(ysm) + len(inner_ysm) > 1 or pack:
-            meta['format'] = '模型包 zip'
+            meta['format'] = T('模型包 zip')
             meta['pack_count'] = len(ysm) + len(inner_ysm) + (len(legacy) if not ysm else 0)
             if pack:
                 try:
@@ -320,9 +369,9 @@ def zip_meta(path):
                 meta.update(legacy_meta_from_geo(loose_json(z.read(legacy[0][1]).decode('utf-8', errors='replace'))))
             except Exception:
                 pass
-            meta['format'] = '1.x 舊版 zip'
+            meta['format'] = T('1.x 舊版 zip')
         else:
-            meta['format'] = 'zip（未找到模型）'
+            meta['format'] = T('zip（未找到模型）')
     return meta
 
 
@@ -432,16 +481,16 @@ def make_entry(path, root, source, enabled, rel, is_dir):
         elif kind == 'ysm':
             e['summary'] = ysm_public_summary(path)
             e['meta'] = guess_meta_from_summary(e['summary'])
-            e['meta']['format'] = '加密 .ysm' + (f"（{e['summary']['container']}）" if e['summary'] else '')
+            e['meta']['format'] = T('加密 .ysm（{0}）', e['summary']['container']) if e['summary'] else T('加密 .ysm')
         elif kind == '7z':
-            e['meta'] = {'format': '7z 壓縮檔'}
+            e['meta'] = {'format': T('7z 壓縮檔')}
     except Exception as ex:
-        e['error'] = f'讀取資訊失敗：{ex}'
+        e['error'] = T('讀取資訊失敗：{0}', ex)
     try:
         e['key'] = content_key(path, is_dir)
     except Exception:
         e['key'] = e['id']
-    if e['meta'].get('format', '').startswith('模型包'):
+    if e['meta'].get('format', '') == T('模型包 zip'):
         e['previewable'] = True
     return e
 
@@ -470,7 +519,7 @@ def normalize_root(path):
     """接受 .minecraft / 實例資料夾 / yes_steve_model / custom，統一成 yes_steve_model 資料夾"""
     path = os.path.abspath(os.path.expandvars(os.path.expanduser(path.strip().strip('"'))))
     if not os.path.isdir(path):
-        raise ValueError('資料夾不存在：' + path)
+        raise ValueError(T('資料夾不存在：{0}', path))
     name = os.path.basename(path).lower()
     if name in SOURCES or name == DISABLED_DIRNAME:
         return os.path.dirname(path)
@@ -602,7 +651,7 @@ def _put_file(src, dst, mode):
         try:
             os.link(src, dst)
         except OSError:
-            raise ValueError(HARDLINK_HINT)
+            raise ValueError(T(HARDLINK_HINT))
     else:
         shutil.copy2(src, dst)
 
@@ -632,14 +681,14 @@ def place(src, dst, mode, allow_copy=True):
     回傳實際使用的方式。
     """
     if os.path.exists(dst):
-        raise ValueError('目的地已有同名的模型：' + dst)
+        raise ValueError(T('目的地已有同名的模型：{0}', dst))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if mode == 'hardlink':
         try:
             _place(src, dst, 'hardlink')
             return 'hardlink'
         except ValueError as ex:
-            if str(ex) != HARDLINK_HINT:
+            if str(ex) != T(HARDLINK_HINT):
                 raise
             if os.path.isfile(dst):
                 os.remove(dst)
@@ -696,14 +745,14 @@ def send_to_recycle_bin(path):
     op.fFlags = 0x0040 | 0x0010 | 0x0004 | 0x0400  # ALLOWUNDO | NOCONFIRMATION | SILENT | NOERRORUI
     rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if rc != 0 or op.fAnyOperationsAborted or os.path.exists(path):
-        raise ValueError(f'無法移到資源回收筒（錯誤碼 {rc}）')
+        raise ValueError(T('無法移到資源回收筒（錯誤碼 {0}）', rc))
 
 
 def check_folder_name(name):
     name = (name or '').strip()
     if (not name or re.search(r'[\\/:*?"<>|]', name) or name in ('.', '..') or name.endswith('.')
             or len(name) > 80 or name.lower() == DISABLED_DIRNAME.lower()):
-        raise ValueError('資料夾名稱不能空白、不能以 . 結尾，也不能含有 \\ / : * ? " < > |')
+        raise ValueError(T('資料夾名稱不能空白、不能以 . 結尾，也不能含有 \\ / : * ? " < > |'))
     return name
 
 
@@ -802,7 +851,7 @@ class GameInput:
             title = self._text(hwnd, self.user32.GetWindowTextW)
             cls = self._text(hwnd, self.user32.GetClassNameW)
             # Minecraft 1.13+ 使用 GLFW 視窗（類別 GLFW30）；舊版用 LWJGL
-            if cls.startswith('GLFW') or cls == 'LWJGL' or ('minecraft' in title.lower() and 'launcher' not in title.lower() and title != APP_NAME):
+            if cls.startswith('GLFW') or cls == 'LWJGL' or ('minecraft' in title.lower() and 'launcher' not in title.lower() and title not in (APP_NAME, T(APP_NAME))):
                 if title and title != APP_NAME:
                     found.append({'hwnd': int(hwnd), 'title': title, 'cls': cls})
             return True
@@ -841,7 +890,7 @@ class GameInput:
 
     def focus(self, hwnd):
         if not self.user32.IsWindow(hwnd):
-            raise ValueError('找不到遊戲視窗，請確認遊戲還開著，並重新整理視窗清單')
+            raise ValueError(T('找不到遊戲視窗，請確認遊戲還開著，並重新整理視窗清單'))
         if self.user32.IsIconic(hwnd):
             self.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         u = self.user32
@@ -866,7 +915,7 @@ class GameInput:
             time.sleep(0.35)
             if self.foreground() == hwnd:
                 return
-        raise ValueError('無法把遊戲視窗切到最前面，請手動點一下遊戲視窗後再試')
+        raise ValueError(T('無法把遊戲視窗切到最前面，請手動點一下遊戲視窗後再試'))
 
 
 GAME = None
@@ -930,20 +979,20 @@ class Api:
         hwnd = int(hwnd)
         gd = game_dir_of(root)
         if not gd:
-            raise ValueError('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）')
+            raise ValueError(T('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）'))
         shots = os.path.join(gd, 'screenshots')
         # 可以一次送多條指令（例如先解除隱形再換模型），依序輸入
         commands = command if isinstance(command, list) else [command]
         if not 1 <= len(commands) <= 4:
-            raise ValueError('指令格式不正確')
+            raise ValueError(T('指令格式不正確'))
         for c in commands:
             if not isinstance(c, str) or not c.startswith('/') or '\n' in c or len(c) > 240:
-                raise ValueError('指令格式不正確')
+                raise ValueError(T('指令格式不正確'))
         wait_sec = max(0.5, min(float(wait_sec), 20))
 
         def ensure_front():
             if g.foreground() != hwnd:
-                raise ValueError('遊戲視窗不在最前面，已停止（切換視窗會中止截圖）')
+                raise ValueError(T('遊戲視窗不在最前面，已停止（切換視窗會中止截圖）'))
 
         g.focus(hwnd)
         time.sleep(0.3)
@@ -983,7 +1032,7 @@ class Api:
                 new = os.path.join(shots, sorted(added)[-1])
                 break
         if not new:
-            raise ValueError('按了 F2 但沒有找到新截圖。請確認截圖鍵是 F2、遊戲沒有開著選單，且這個視窗屬於所選的實例')
+            raise ValueError(T('按了 F2 但沒有找到新截圖。請確認截圖鍵是 F2、遊戲沒有開著選單，且這個視窗屬於所選的實例'))
         # 等檔案寫完
         last = -1
         for _ in range(20):
@@ -998,14 +1047,14 @@ class Api:
     def _bridge(self, root):
         gd = game_dir_of(root)
         if not gd:
-            raise ValueError('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）')
+            raise ValueError(T('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）'))
         cfg = os.path.join(gd, 'config', 'ysmshot.json')
         try:
             with open(cfg, encoding='utf-8') as f:
                 info = json.load(f)
             port, token = int(info['port']), str(info['token'])
         except (OSError, ValueError, KeyError, TypeError):
-            raise ValueError('這個實例沒有執行中的 YSM Shot MOD。請確認已把 ysmshot 放進 mods 並啟動遊戲')
+            raise ValueError(T('這個實例沒有執行中的 YSM Shot MOD。請確認已把 ysmshot 放進 mods 並啟動遊戲'))
         return port, token
 
     def _bridge_req(self, root, path, body=None, timeout=10):
@@ -1026,22 +1075,22 @@ class Api:
             except Exception:
                 err = str(e)
             msg = {
-                'not_in_world': '遊戲還沒進入世界，請先進入單人世界',
-                'paused': '遊戲已暫停（開著選單或視窗失去焦點）。請在遊戲中按 F3+P 關閉「失去焦點時暫停」，並關閉選單',
-                'bad token': '連線驗證失敗，請重新啟動遊戲',
+                'not_in_world': T('遊戲還沒進入世界，請先進入單人世界'),
+                'paused': T('遊戲已暫停（開著選單或視窗失去焦點）。請在遊戲中按 F3+P 關閉「失去焦點時暫停」，並關閉選單'),
+                'bad token': T('連線驗證失敗，請重新啟動遊戲'),
             }.get(err, err)
             raise ValueError(msg)
         except OSError:
-            raise ValueError('連不上遊戲中的 YSM Shot MOD（遊戲沒開、或已關閉）')
+            raise ValueError(T('連不上遊戲中的 YSM Shot MOD（遊戲沒開、或已關閉）'))
 
     def install_bridge_mod(self, root):
         """把內附的 YSM Shot jar 複製到實例的 mods 資料夾（同名舊版會被取代）。"""
         gd = game_dir_of(root)
         if not gd:
-            raise ValueError('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）')
+            raise ValueError(T('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）'))
         src = os.path.join(APP_DIR, 'mods', BRIDGE_JAR)
         if not os.path.isfile(src):
-            raise ValueError('程式內找不到 YSM Shot MOD 檔案')
+            raise ValueError(T('程式內找不到 YSM Shot MOD 檔案'))
         mods = os.path.join(gd, 'mods')
         os.makedirs(mods, exist_ok=True)
         removed = []
@@ -1057,7 +1106,7 @@ class Api:
         _, raw = self._bridge_req(root, '/suggest', {'text': 'ysm model set @s '}, timeout=20)
         res = json.loads(raw.decode('utf-8'))
         if not res.get('ok'):
-            raise ValueError({'not_in_world': '遊戲還沒進入世界，請先進入單人世界'}.get(res.get('error'), res.get('error') or '讀取失敗'))
+            raise ValueError({'not_in_world': T('遊戲還沒進入世界，請先進入單人世界')}.get(res.get('error'), res.get('error') or T('讀取失敗')))
         ids = []
         for s in res.get('suggestions', []):
             t = s.get('text', '')
@@ -1072,13 +1121,13 @@ class Api:
 
     def bridge_shot(self, root, command, wait_sec, size=768, zoom=1.0, yaw=0):
         if not isinstance(command, str) or '\n' in command or len(command) > 240:
-            raise ValueError('指令格式不正確')
+            raise ValueError(T('指令格式不正確'))
         wait_ticks = int(max(0, min(float(wait_sec), 20)) * 20)
         headers, raw = self._bridge_req(root, '/shot', {
             'command': command, 'waitTicks': wait_ticks, 'size': int(size),
             'zoom': float(zoom), 'yaw': float(yaw)}, timeout=wait_ticks / 20 + 25)
         if not headers.get('Content-Type', '').startswith('image/png'):
-            raise ValueError('MOD 回傳的不是圖片')
+            raise ValueError(T('MOD 回傳的不是圖片'))
         try:
             messages = json.loads(base64.b64decode(headers.get('X-YsmShot-Messages', '')).decode('utf-8') or '[]')
         except Exception:
@@ -1097,7 +1146,7 @@ class Api:
             rn = os.path.normcase(os.path.abspath(r))
             pn = os.path.normcase(path)
             if pn == rn or pn.startswith(rn + os.sep) or rn.startswith(pn + os.sep):
-                raise ValueError('倉庫不能放在遊戲實例資料夾裡（也不能包含遊戲實例），請選另一個資料夾，例如 D:\\YSM倉庫')
+                raise ValueError(T('倉庫不能放在遊戲實例資料夾裡（也不能包含遊戲實例），請選另一個資料夾，例如 D:\\YSM倉庫'))
         os.makedirs(path, exist_ok=True)
         with LIB.lock:
             LIB.data['repo'] = path
@@ -1106,7 +1155,7 @@ class Api:
 
     def set_link_mode(self, mode):
         if mode not in ('hardlink', 'copy'):
-            raise ValueError('未知的模式')
+            raise ValueError(T('未知的模式'))
         with LIB.lock:
             LIB.data['link_mode'] = mode
             LIB.save()
@@ -1128,9 +1177,9 @@ class Api:
     def _install(self, repo_id, root, allow_copy):
         e = self._entry(repo_id)
         if e.get('location') != 'repo':
-            raise ValueError('只能從倉庫安裝')
+            raise ValueError(T('只能從倉庫安裝'))
         if root not in LIB.data['roots'] or not is_instance_root(root):
-            raise ValueError('這不是遊戲實例的 yes_steve_model 資料夾')
+            raise ValueError(T('這不是遊戲實例的 yes_steve_model 資料夾'))
         for x in LIB.entries.values():
             if x.get('location') == root and x['key'] == e['key']:
                 return {'path': x['path'], 'already': True}
@@ -1138,7 +1187,7 @@ class Api:
         sub = [p for p in (e.get('group') or '').split('/') if p]
         dst = os.path.join(root, 'custom', *sub, e['filename'])
         if os.path.exists(os.path.join(root, DISABLED_DIRNAME, 'custom', *sub, e['filename'])):
-            raise ValueError('這個實例中有同名的停用模型，請先處理')
+            raise ValueError(T('這個實例中有同名的停用模型，請先處理'))
         used = place(e['path'], dst, LIB.data.get('link_mode', 'hardlink'), allow_copy)
         return {'path': dst, 'mode': used, 'fallback': used != LIB.data.get('link_mode', 'hardlink')}
 
@@ -1167,7 +1216,7 @@ class Api:
     def _repo(self):
         repo = LIB.data.get('repo')
         if not repo or not os.path.isdir(repo):
-            raise ValueError('請先設定倉庫資料夾')
+            raise ValueError(T('請先設定倉庫資料夾'))
         return repo
 
     def _folder_path(self, rel):
@@ -1202,7 +1251,7 @@ class Api:
         name = check_folder_name(name)
         path = os.path.join(base, name)
         if os.path.exists(path):
-            raise ValueError('已經有同名的資料夾或檔案')
+            raise ValueError(T('已經有同名的資料夾或檔案'))
         os.makedirs(path)
         return self.repo_folders()
 
@@ -1213,13 +1262,13 @@ class Api:
     def rename_folder(self, rel, new_name):
         old, rel = self._folder_path(rel)
         if not rel or not os.path.isdir(old):
-            raise ValueError('找不到這個資料夾，請重新掃描')
+            raise ValueError(T('找不到這個資料夾，請重新掃描'))
         new_name = check_folder_name(new_name)
         new = os.path.join(os.path.dirname(old), new_name)
         if os.path.normcase(new) == os.path.normcase(old) and new_name == os.path.basename(old):
             return {'folders': self.repo_folders(), 'moved': 0, 'errors': []}
         if os.path.exists(new) and os.path.normcase(new) != os.path.normcase(old):
-            raise ValueError('已經有同名的資料夾或檔案')
+            raise ValueError(T('已經有同名的資料夾或檔案'))
         new_rel = (rel.rsplit('/', 1)[0] + '/' + new_name) if '/' in rel else new_name
         moves = [(e['key'], new_rel + e['group'][len(rel):]) for e in self._repo_in_folder(rel)]
         os.rename(old, new)
@@ -1231,16 +1280,16 @@ class Api:
         old, rel = self._folder_path(rel)
         base, dest = self._folder_path(dest)
         if not rel or not os.path.isdir(old):
-            raise ValueError('找不到這個資料夾，請重新掃描')
+            raise ValueError(T('找不到這個資料夾，請重新掃描'))
         if dest == rel or dest.startswith(rel + '/'):
-            raise ValueError(f'不能把「{rel}」移到它自己裡面')
+            raise ValueError(T('不能把「{0}」移到它自己裡面', rel))
         name = rel.split('/')[-1]
         new_rel = f'{dest}/{name}' if dest else name
         if new_rel == rel:
             return {'moved': 0, 'errors': []}
         new = os.path.join(base, name)
         if os.path.exists(new):
-            raise ValueError(f'目的地已經有名為「{name}」的資料夾或檔案')
+            raise ValueError(T('目的地已經有名為「{0}」的資料夾或檔案', name))
         moves = [(e['key'], new_rel + e['group'][len(rel):]) for e in self._repo_in_folder(rel)]
         os.makedirs(base, exist_ok=True)
         shutil.move(old, new)
@@ -1251,7 +1300,7 @@ class Api:
         """刪除整個資料夾（含裡面的模型）；能用資源回收筒就丟進回收筒。遊戲中已安裝的那份不受影響"""
         path, rel = self._folder_path(rel)
         if not rel or not os.path.isdir(path):
-            raise ValueError('找不到這個資料夾，請重新掃描')
+            raise ValueError(T('找不到這個資料夾，請重新掃描'))
         n = len(self._repo_in_folder(rel))
         recycled = can_recycle(path)
         if recycled:
@@ -1265,10 +1314,10 @@ class Api:
     def delete_folder(self, rel):
         path, rel = self._folder_path(rel)
         if not rel or not os.path.isdir(path):
-            raise ValueError('找不到這個資料夾，請重新掃描')
+            raise ValueError(T('找不到這個資料夾，請重新掃描'))
         for _, _, files in os.walk(path):
             if files:
-                raise ValueError('資料夾裡還有檔案，請先把模型移到其他資料夾')
+                raise ValueError(T('資料夾裡還有檔案，請先把模型移到其他資料夾'))
         shutil.rmtree(path)
         return self.repo_folders()
 
@@ -1285,7 +1334,7 @@ class Api:
             if os.path.normcase(os.path.abspath(dst)) == os.path.normcase(os.path.abspath(e['path'])):
                 continue
             if os.path.exists(dst):
-                errors.append(f"{e['filename']}：目的資料夾已有同名的模型")
+                errors.append(T('{0}：目的資料夾已有同名的模型', e['filename']))
                 continue
             try:
                 shutil.move(e['path'], dst)
@@ -1309,7 +1358,7 @@ class Api:
                 if os.path.normcase(dst) == os.path.normcase(x['path']) or not os.path.exists(x['path']):
                     continue
                 if os.path.exists(dst):
-                    errors.append(f"{x['instance']}：{x['filename']} 的目的位置已有同名模型")
+                    errors.append(T('{0}：{1} 的目的位置已有同名模型', x['instance'], x['filename']))
                     continue
                 try:
                     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -1347,10 +1396,10 @@ class Api:
         e = self._entry(eid)
         base = (LIB.data.get('repo') or '') if e.get('location') == 'repo' else e.get('root', '')
         if e.get('location') != 'repo' and base not in LIB.data['roots']:
-            raise ValueError('這個模型不屬於已加入的遊戲實例，不會刪除')
+            raise ValueError(T('這個模型不屬於已加入的遊戲實例，不會刪除'))
         p = os.path.normcase(os.path.abspath(e['path']))
         if not base or not p.startswith(os.path.normcase(os.path.abspath(base)) + os.sep):
-            raise ValueError('這個檔案不在倉庫或遊戲實例的資料夾內，不會刪除')
+            raise ValueError(T('這個檔案不在倉庫或遊戲實例的資料夾內，不會刪除'))
         recycled = can_recycle(e['path'])
         if recycled:
             send_to_recycle_bin(e['path'])
@@ -1417,14 +1466,14 @@ class Api:
                 try:
                     os.remove(jar)
                 except OSError:
-                    problems.append(f'{instance_name(r)} 的 YSM Shot MOD 無法刪除（遊戲可能正在執行）')
+                    problems.append(T('{0} 的 YSM Shot MOD 無法刪除（遊戲可能正在執行）', instance_name(r)))
                 try:
                     os.remove(os.path.join(game_dir_of(r), 'config', 'ysmshot.json'))
                 except OSError:
                     pass
         if problems:
             # 有東西沒處理好就不要繼續，讓使用者先處理
-            raise ValueError('解除安裝已中止：' + '；'.join(problems[:3]) + ('…' if len(problems) > 3 else ''))
+            raise ValueError(T('解除安裝已中止：{0}', '；'.join(problems[:3]) + ('…' if len(problems) > 3 else '')))
 
         def q(p):
             return "'" + p.replace("'", "''") + "'"
@@ -1470,7 +1519,8 @@ class Api:
 
     # ---------- 設定 ----------
     def get_settings(self):
-        return dict(SETTINGS, data_dir_now=DATA_DIR, data_dir_default=BASE_DIR, version=APP_VERSION, github=GITHUB_URL)
+        return dict(SETTINGS, lang=SETTINGS['ui_lang'], lang_effective=effective_lang(),
+                    data_dir_now=DATA_DIR, data_dir_default=BASE_DIR, version=APP_VERSION, github=GITHUB_URL)
 
     def open_project_page(self, which='home'):
         """開啟本專案的 GitHub 頁面（固定網址，不需警告）"""
@@ -1482,9 +1532,12 @@ class Api:
         for k in ('lang', 'confirm_copy', 'confirm_delete_twice', 'group_versions'):
             if k in patch:
                 v = patch[k]
-                if k == 'lang' and v not in ('zh-Hant',):
-                    raise ValueError('不支援的語言')
-                SETTINGS[k] = bool(v) if k != 'lang' else v
+                if k == 'lang':
+                    if v not in LANGS + ('auto',):
+                        raise ValueError(T('不支援的語言'))
+                    SETTINGS['ui_lang'] = v
+                    continue
+                SETTINGS[k] = bool(v)
         save_settings()
         return self.get_settings()
 
@@ -1497,9 +1550,9 @@ class Api:
             return self.get_settings()
         nn, tn = os.path.normcase(new_dir), os.path.normcase(THUMB_DIR)
         if nn == tn or nn.startswith(tn + os.sep):
-            raise ValueError('不能搬到目前的縮圖資料夾裡')
+            raise ValueError(T('不能搬到目前的縮圖資料夾裡'))
         if os.path.exists(os.path.join(new_dir, 'library.json')):
-            raise ValueError('那個資料夾裡已經有模型資料庫（library.json），請選一個空的資料夾')
+            raise ValueError(T('那個資料夾裡已經有模型資料庫（library.json），請選一個空的資料夾'))
         new_thumbs = os.path.join(new_dir, 'thumbs')
         os.makedirs(new_thumbs, exist_ok=True)
         with LIB.lock:
@@ -1532,12 +1585,12 @@ class Api:
         """從實例移除（只在倉庫中確認有完全相同的內容時才刪除）"""
         e = self._entry(eid)
         if e.get('location') == 'repo':
-            raise ValueError('這是倉庫中的模型，不能用「移除」')
+            raise ValueError(T('這是倉庫中的模型，不能用「移除」'))
         r = self._repo_entry_for(e['key'])
         if not r:
-            raise ValueError('倉庫裡沒有這個模型，為了避免遺失，不會刪除。請先「加入倉庫」')
+            raise ValueError(T('倉庫裡沒有這個模型，為了避免遺失，不會刪除。請先「加入倉庫」'))
         if not contents_equal(r['path'], e['path']):
-            raise ValueError('實例中的檔案和倉庫的內容不同，為了避免遺失，不會刪除')
+            raise ValueError(T('實例中的檔案和倉庫的內容不同，為了避免遺失，不會刪除'))
         remove_model(e['path'])
         return True
 
@@ -1545,7 +1598,7 @@ class Api:
         """把實例中的模型複製進倉庫；硬連結模式下再把實例中的檔案換成連結（省空間）"""
         repo = LIB.data.get('repo')
         if not repo or not os.path.isdir(repo):
-            raise ValueError('請先設定倉庫資料夾')
+            raise ValueError(T('請先設定倉庫資料夾'))
         e = self._entry(eid)
         if e.get('location') == 'repo':
             return {'path': e['path']}
@@ -1576,7 +1629,7 @@ class Api:
     def import_all(self):
         repo = LIB.data.get('repo')
         if not repo or not os.path.isdir(repo):
-            raise ValueError('請先設定倉庫資料夾')
+            raise ValueError(T('請先設定倉庫資料夾'))
         done, linked, errors = 0, 0, []
         for e in list(LIB.entries.values()):
             if e.get('location') == 'repo':
@@ -1600,7 +1653,7 @@ class Api:
         for r in detect_roots():
             low = r.lower().replace('/', '\\')
             launcher = ('Prism' if '\\prismlauncher\\' in low else 'CurseForge' if '\\curseforge\\' in low
-                        else 'Modrinth' if 'modrinth' in low else '版本隔離' if '\\.minecraft\\versions\\' in low
+                        else 'Modrinth' if 'modrinth' in low else T('版本隔離') if '\\.minecraft\\versions\\' in low
                         else '.minecraft')
             n = 0
             try:
@@ -1656,7 +1709,7 @@ class Api:
             scan_dir(repo, repo, '', True, repo_entries)
             for e in repo_entries:
                 e['location'] = 'repo'
-                e['instance'] = '倉庫'
+                e['instance'] = T('倉庫')
         # 對應倉庫與各實例中的同一個模型（依內容）
         by_key = {}
         for e in repo_entries:
@@ -1701,11 +1754,11 @@ class Api:
     def set_thumb(self, key, data_url):
         m = re.match(r'data:image/(png|jpeg|webp);base64,(.+)', data_url or '', re.S)
         if not m:
-            raise ValueError('圖片格式不支援')
+            raise ValueError(T('圖片格式不支援'))
         ext = 'jpg' if m.group(1) == 'jpeg' else m.group(1)
         raw = base64.b64decode(m.group(2))
         if len(raw) > 8 * 1024 * 1024:
-            raise ValueError('圖片太大')
+            raise ValueError(T('圖片太大'))
         with LIB.lock:
             rec = LIB.record(key)
             olds = [rec.get('thumb'), rec.pop('thumb_src', '')]  # 換了新縮圖，換背景前保留的原圖也不再需要
@@ -1721,15 +1774,15 @@ class Api:
         """換背景：data_url 是已經合成好背景的圖。第一次換時把原本的透明圖留下（thumb_src），之後可以再換或還原"""
         m = re.match(r'data:image/png;base64,(.+)', data_url or '', re.S)
         if not m:
-            raise ValueError('圖片格式不支援')
+            raise ValueError(T('圖片格式不支援'))
         raw = base64.b64decode(m.group(1))
         if len(raw) > 8 * 1024 * 1024:
-            raise ValueError('圖片太大')
+            raise ValueError(T('圖片太大'))
         with LIB.lock:
             rec = LIB.record(key)
             cur, src = rec.get('thumb'), rec.get('thumb_src')
             if not cur and not src:
-                raise ValueError('這個模型沒有縮圖')
+                raise ValueError(T('這個模型沒有縮圖'))
             name = f'{key}_{int(time.time() * 1000)}_bg.png'
             with open(os.path.join(THUMB_DIR, name), 'wb') as f:
                 f.write(raw)
@@ -1788,35 +1841,35 @@ class Api:
     def _entry(self, eid):
         e = LIB.entries.get(eid)
         if not e or not os.path.exists(e['path']):
-            raise ValueError('找不到這個模型，請重新掃描')
+            raise ValueError(T('找不到這個模型，請重新掃描'))
         return e
 
     def rename(self, eid, new_name):
         e = self._entry(eid)
         new_name = new_name.strip()
         if not new_name or re.search(r'[\\/:*?"<>|]', new_name) or new_name in ('.', '..'):
-            raise ValueError('名稱含有不允許的字元')
+            raise ValueError(T('名稱含有不允許的字元'))
         if e['kind'] != 'folder':
             ext = os.path.splitext(e['path'])[1]
             if not new_name.lower().endswith(ext.lower()):
                 new_name += ext
         dst = os.path.join(os.path.dirname(e['path']), new_name)
         if os.path.exists(dst):
-            raise ValueError('已有同名的檔案或資料夾')
+            raise ValueError(T('已有同名的檔案或資料夾'))
         os.rename(e['path'], dst)
         return {'path': dst}
 
     def set_enabled(self, eid, enabled):
         e = self._entry(eid)
         if not e['source']:
-            raise ValueError('這個資料夾不是遊戲的 yes_steve_model 資料夾，無法啟用或停用')
+            raise ValueError(T('這個資料夾不是遊戲的 yes_steve_model 資料夾，無法啟用或停用'))
         if e['enabled'] == enabled:
             return {'path': e['path']}
         base_on = os.path.join(e['root'], e['source'])
         base_off = os.path.join(e['root'], DISABLED_DIRNAME, e['source'])
         dst = os.path.join(base_on if enabled else base_off, e['rel'])
         if os.path.exists(dst):
-            raise ValueError('目的地已有同名模型：' + dst)
+            raise ValueError(T('目的地已有同名模型：{0}', dst))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.move(e['path'], dst)
         # 移除停用區中留下的空資料夾
@@ -1839,7 +1892,7 @@ class Api:
         """用系統預設瀏覽器開啟連結（只接受 http/https；前端會先顯示警告）"""
         url = str(url or '').strip()
         if not re.match(r'^https?://[^\s]+$', url, re.I) or len(url) > 2000:
-            raise ValueError('只能開啟 http 或 https 連結')
+            raise ValueError(T('只能開啟 http 或 https 連結'))
         import webbrowser
         webbrowser.open(url, new=2)
         return True
@@ -1883,7 +1936,7 @@ class Api:
             return {'kind': 'folder', 'name': os.path.basename(e['path']), 'files': files}
         if e['kind'] == 'zip':
             return {'kind': 'zip', 'name': os.path.basename(e['path']), 'files': ['']}
-        raise ValueError('這種格式無法在程式中預覽')
+        raise ValueError(T('這種格式無法在程式中預覽'))
 
 
 API = Api()
@@ -1980,7 +2033,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             req = json.loads(self.rfile.read(n).decode('utf-8'))
             method = req.get('method', '')
             if method.startswith('_') or not hasattr(API, method):
-                raise ValueError('未知的指令：' + method)
+                raise ValueError(T('未知的指令：{0}', method))
             result = getattr(API, method)(*req.get('args', []))
             self._send(200, json.dumps({'ok': True, 'result': result}, ensure_ascii=False))
         except Exception as ex:
@@ -2004,7 +2057,7 @@ def main():
     if '--port' in sys.argv:
         port = int(sys.argv[sys.argv.index('--port') + 1])
     srv = start_server(port)
-    url = f'http://127.0.0.1:{srv.server_address[1]}/manager.html?t={TOKEN}'
+    url = f'http://127.0.0.1:{srv.server_address[1]}/manager.html?t={TOKEN}&lang={effective_lang()}'
     if serve_only:
         print(url, flush=True)
         try:
@@ -2012,8 +2065,14 @@ def main():
                 time.sleep(3600)
         except KeyboardInterrupt:
             return
+    try:
+        import ssl  # noqa: F401
+    except ImportError:
+        # 打包時排除了 OpenSSL（約 6 MB）：管理器只連本機 http，pywebview 只在 https 模式才用得到 ssl
+        import types
+        sys.modules['ssl'] = types.ModuleType('ssl')
     import webview
-    win = webview.create_window(APP_NAME, url, width=1360, height=860, min_size=(960, 600), background_color='#16181d')
+    win = webview.create_window(T(APP_NAME), url, width=1360, height=860, min_size=(960, 600), background_color='#16181d')
     API.window = win
     webview.start(private_mode=False, storage_path=os.path.join(BASE_DIR, 'webview'))
     os._exit(0)  # 視窗關閉後立即結束（不等背景執行緒），解除安裝腳本才能刪除 exe

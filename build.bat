@@ -16,6 +16,7 @@ if not exist "%TEMP%\ysm_manager_build" mkdir "%TEMP%\ysm_manager_build"
 %PY% "%~dp0make_version.py" "%TEMP%\ysm_manager_build\version_info.txt"
 if errorlevel 1 exit /b 1
 rem Windows 版只用 Edge WebView2：排除電腦上剛好裝了、但用不到的套件（PyQt 等），縮小 exe
+rem 管理器只連本機 http，也排除 OpenSSL（約 6 MB，hashlib 會改用內建的 sha1/sha256）和其他用不到的標準函式庫
 %PY% -m PyInstaller --noconfirm --onefile --windowed --name "YSM模型管理器" ^
   --workpath "%TEMP%\ysm_manager_build" --specpath "%TEMP%\ysm_manager_build" ^
   --version-file "%TEMP%\ysm_manager_build\version_info.txt" ^
@@ -27,6 +28,10 @@ rem Windows 版只用 Edge WebView2：排除電腦上剛好裝了、但用不到
   --exclude-module qtpy --exclude-module gi --exclude-module cefpython3 --exclude-module tkinter ^
   --exclude-module setuptools --exclude-module pkg_resources --exclude-module _distutils_hack ^
   --exclude-module unittest --exclude-module pydoc --exclude-module xmlrpc --exclude-module numpy ^
+  --exclude-module ssl --exclude-module _ssl --exclude-module _hashlib ^
+  --exclude-module decimal --exclude-module _decimal --exclude-module lzma --exclude-module _lzma ^
+  --exclude-module bz2 --exclude-module _bz2 --exclude-module asyncio --exclude-module multiprocessing ^
+  --exclude-module xml --exclude-module pyexpat ^
   manager_app.py
 if errorlevel 1 (
   echo.
@@ -34,4 +39,4 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo 完成：dist\YSM模型管理器.exe
+echo 完成：dist\YSM模型管理器.exe

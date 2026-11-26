@@ -1,6 +1,7 @@
 /* YSM 模型預覽器 — 主程式 */
 (function () {
   'use strict';
+  I18N.translatePage();
   const $ = (id) => document.getElementById(id);
   const L = window.YSMLoader;
   if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
@@ -17,7 +18,7 @@
       }
     } catch (e) { /* 不同來源時無法存取 parent */ }
     const host = new URL(a.href).host;
-    if (window.confirm(`即將開啟外部連結：\n${host}\n${a.href}\n\n⚠ 這是模型作者提供的連結，無法確認是否安全。\n不要在不熟悉的網站輸入密碼或付款資訊，也不要下載執行來路不明的檔案。\n\n確定要前往嗎？`)) {
+    if (window.confirm(__('即將開啟外部連結：\n{0}\n{1}\n\n⚠ 這是模型作者提供的連結，無法確認是否安全。\n不要在不熟悉的網站輸入密碼或付款資訊，也不要下載執行來路不明的檔案。\n\n確定要前往嗎？', host, a.href))) {
       window.open(a.href, '_blank', 'noopener');
     }
   });
@@ -118,21 +119,21 @@
       } else {
         clearModel();
         $('drop').classList.remove('hidden');
-        if (!warnings.length) addWarning('沒有找到 YSM 模型（需要 ysm.json，或舊版的 main.json）。');
+        if (!warnings.length) addWarning(__('沒有找到 YSM 模型（需要 ysm.json，或舊版的 main.json）。'));
       }
     } catch (e) {
       console.error(e);
-      addWarning('載入失敗：' + e.message);
+      addWarning(__('載入失敗：') + e.message);
     } finally { showLoading(false); }
   }
 
   function renderModelList() {
     const ul = $('modelList');
     ul.innerHTML = '';
-    if (!state.models.length) { ul.innerHTML = '<li class="empty">尚未載入模型</li>'; return; }
+    if (!state.models.length) { ul.innerHTML = `<li class="empty">${__('尚未載入模型')}</li>`; return; }
     state.models.forEach((m, i) => {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="nm">${esc(L.basename(m.root) || '（根目錄）')}</span><span class="sub">${m.kind === 'v2' ? '2.x 格式' : '1.x 舊版格式'}${m.root ? ' · ' + esc(m.root) : ''}</span>`;
+      li.innerHTML = `<span class="nm">${esc(L.basename(m.root) || __('（根目錄）'))}</span><span class="sub">${m.kind === 'v2' ? __('2.x 格式') : __('1.x 舊版格式')}${m.root ? ' · ' + esc(m.root) : ''}</span>`;
       li.onclick = () => selectModel(i);
       ul.appendChild(li);
     });
@@ -170,10 +171,10 @@
     let html = `<div class="name">${esc(m.name || info.name)}</div>`;
     if (m.tips) html += `<div class="tips">${esc(m.tips)}</div>`;
     html += '<div class="kv">';
-    if (m.license) html += `<span>授權</span><span>${esc(m.license.type || m.license)}${m.license.desc ? '（' + esc(m.license.desc) + '）' : ''}</span>`;
-    html += `<span>格式</span><span>${info.kind === 'v2' ? 'ysm.json（2.x）' : '舊版（1.x）'}</span>`;
-    if (info.properties && info.properties.origin_ver) html += `<span>版本</span><span>${esc(info.properties.origin_ver)}</span>`;
-    if (info.properties && info.properties.free) html += '<span>授權</span><span>免費模型（不可授權）</span>';
+    if (m.license) html += `<span>${__('授權')}</span><span>${esc(m.license.type || m.license)}${m.license.desc ? '（' + esc(m.license.desc) + '）' : ''}</span>`;
+    html += `<span>${__('格式')}</span><span>${info.kind === 'v2' ? 'ysm.json（2.x）' : __('舊版（1.x）')}</span>`;
+    if (info.properties && info.properties.origin_ver) html += `<span>${__('版本')}</span><span>${esc(info.properties.origin_ver)}</span>`;
+    if (info.properties && info.properties.free) html += `<span>${__('授權')}</span><span>${__('免費模型（不可授權）')}</span>`;
     html += '</div>';
     const authors = Array.isArray(m.authors) ? m.authors : [];
     if (authors.length) {
@@ -189,8 +190,8 @@
     }
     if (m.link) {
       html += '<div class="kv">';
-      if (m.link.home) html += `<span>主頁</span><span><a href="${esc(m.link.home)}" target="_blank" rel="noopener">${esc(m.link.home)}</a></span>`;
-      if (m.link.donate) html += `<span>贊助</span><span><a href="${esc(m.link.donate)}" target="_blank" rel="noopener">${esc(m.link.donate)}</a></span>`;
+      if (m.link.home) html += `<span>${__('主頁')}</span><span><a href="${esc(m.link.home)}" target="_blank" rel="noopener">${esc(m.link.home)}</a></span>`;
+      if (m.link.donate) html += `<span>${__('贊助')}</span><span><a href="${esc(m.link.donate)}" target="_blank" rel="noopener">${esc(m.link.donate)}</a></span>`;
       html += '</div>';
     }
     box.innerHTML = html;
@@ -226,7 +227,7 @@
     clearModel();
     try {
       const geoJson = await L.readJSON(state.vfs, t.modelPath);
-      if (!geoJson) throw new Error('找不到模型檔：' + t.modelPath);
+      if (!geoJson) throw new Error(__('找不到模型檔：') + t.modelPath);
       const built = YSMModel.buildModel(geoJson);
       state.built = built;
       modelHolder.add(built.object);
@@ -234,7 +235,7 @@
       applyViewOptions();
       state.hidden.clear();
       renderBoneList();
-      $('stats').textContent = `${L.basename(t.modelPath)} · ${built.boneCount} 骨骼 · ${built.cubeCount} 方塊 · 貼圖 ${built.texW}×${built.texH}`;
+      $('stats').textContent = __('{0} · {1} 骨骼 · {2} 方塊 · 貼圖 {3}×{4}', L.basename(t.modelPath), built.boneCount, built.cubeCount, built.texW, built.texH);
     } catch (e) {
       console.error(e);
       addWarning(e.message);
@@ -252,7 +253,7 @@
       if (found) defTex = found;
     }
     if (defTex) { selTex.value = defTex; await setTexture(defTex); }
-    else { $('texPreview').innerHTML = ''; addWarning('這個模型沒有貼圖。'); }
+    else { $('texPreview').innerHTML = ''; addWarning(__('這個模型沒有貼圖。')); }
 
     // 動畫
     state.animFiles = [];
@@ -277,7 +278,7 @@
     if (!entry) return;
     const url = blobURL(await entry.blob());
     if (!tex) {
-      tex = await new Promise((res, rej) => new THREE.TextureLoader().load(url, res, undefined, () => rej(new Error('貼圖讀取失敗：' + path))));
+      tex = await new Promise((res, rej) => new THREE.TextureLoader().load(url, res, undefined, () => rej(new Error(__('貼圖讀取失敗：') + path))));
       tex.flipY = false;
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
@@ -311,7 +312,7 @@
         const d = document.createElement('div');
         d.className = 'anim-item' + (a === state.mainAnim ? ' active' : '');
         let tag = '';
-        if (isParallel(a.name)) tag = '並行';
+        if (isParallel(a.name)) tag = __('並行');
         else if (typeof extraNames[a.name] === 'string' && !extraNames[a.name].startsWith('#')) tag = extraNames[a.name];
         d.innerHTML = `<span>${esc(a.name)} ${tag ? `<span class="tag">${esc(tag)}</span>` : ''}</span><span class="len">${a.length ? a.length.toFixed(2) + 's' : '—'}${a.loop === true ? ' ↻' : ''}</span>`;
         d.onclick = () => selectAnim(a);
@@ -320,7 +321,7 @@
         count++;
       }
     }
-    if (!count) box.innerHTML = `<div class="anim-empty">${state.animFiles.length ? '沒有符合的動畫' : '這個模型沒有動畫檔'}</div>`;
+    if (!count) box.innerHTML = `<div class="anim-empty">${state.animFiles.length ? __('沒有符合的動畫') : __('這個模型沒有動畫檔')}</div>`;
   }
 
   function collectParallels() {
@@ -503,7 +504,7 @@
       if (a && a.length > 0) {
         $('seek').value = String(Math.min(1, t / a.length));
         $('timeText').textContent = `${t.toFixed(2)} / ${a.length.toFixed(2)} s`;
-      } else $('timeText').textContent = a ? `${state.globalTime.toFixed(2)} s（無長度）` : '未選擇動畫';
+      } else $('timeText').textContent = a ? __('{0} s（無長度）', state.globalTime.toFixed(2)) : __('未選擇動畫');
     }
     if ($('chkRotate').checked) modelHolder.rotation.y += dt * 0.6;
     controls.update();
