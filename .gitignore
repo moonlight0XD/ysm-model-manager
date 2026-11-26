@@ -7,14 +7,8 @@ dist/
 build/
 *.spec
 
-# YSM Shot MOD 的 Gradle 快取、編譯輸出與測試遊戲
-ysmshot-mod/.gradle/
-ysmshot-mod/build/
-ysmshot-mod/run/
-ysmshot-mod/run-data/
-ysmshot-mod/.idea/
-ysmshot-mod/*.iml
-ysmshot-mod/src/generated/
+# YSM Shot MOD 原始碼已搬到 https://github.com/moonlight0XD/ysmshot-mod（本機資料夾不再追蹤）
+ysmshot-mod/
 
 # 只用於本機的工具
 修復PATH.ps1

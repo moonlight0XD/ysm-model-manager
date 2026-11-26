@@ -45,7 +45,7 @@
   5. 回到管理器按「檢查連線」→「試拍第一個」→「開始批次截圖」。可調整角色大小與角度（正面 / 斜側 / 背面）。
   - 遊戲回應的訊息（例如找不到模型）會顯示在該模型下方並標黃色，通常代表模型 ID 要修改。
   - YSM Shot 只在本機 127.0.0.1 開一個連接埠，連線資訊與隨機密碼寫在實例的 `config\ysmshot.json`；只會切換模型（透過 YSM 自己的指令）和畫出玩家，不讀取、不修改任何模型檔案。
-  - 原始碼在 `ysmshot-mod\`（Forge 1.20.1 MDK）。重新編譯：安裝 JDK 17 後在該資料夾執行 `gradlew build`，成品在 `build\libs\`，再複製到 `mods\` 後重新打包管理器。
+  - 原始碼在獨立的儲存庫 [moonlight0XD/ysmshot-mod](https://github.com/moonlight0XD/ysmshot-mod)（Forge 1.20.1）。重新編譯後把 jar 複製到本專案的 `mods\`，再重新打包管理器。
 
   **按鍵模擬模式**（不裝 MOD，任何版本可用）：管理器打開遊戲聊天欄輸入指令並按 F2 截圖。
   1. 進入單人世界（建議超平坦、創造、允許作弊），F5 切正面視角。
@@ -123,8 +123,7 @@ js/manager.js       管理器介面邏輯
 build.bat           打包腳本
 make_version.py     產生 exe 版本資訊（打包時自動執行）
 make_icon.py        產生軟體圖示 assets/icon.png、assets/icon.ico
-mods/               打包進管理器的 YSM Shot MOD（ysmshot-forge-1.20.1-1.0.jar）
-ysmshot-mod/        YSM Shot MOD 原始碼（Forge 1.20.1）
+mods/               打包進管理器的 YSM Shot MOD（ysmshot-forge-1.20.1-1.0.jar，原始碼見 moonlight0XD/ysmshot-mod）
 index.html          預覽器主頁面
 css/style.css       預覽器樣式
 js/molang.js        Molang 直譯器
@@ -143,6 +142,6 @@ lib/                three.js r147、OrbitControls、JSZip 3.10.1（已內附，�
 
 - [three.js](https://github.com/mrdoob/three.js) 與 OrbitControls：MIT
 - [JSZip](https://github.com/Stuk/jszip)：MIT 或 GPLv3 雙授權（本專案依 MIT 使用）
-- YSM Shot MOD 以 Minecraft Forge MDK 為範本建立，Forge 本身的授權見 `ysmshot-mod/FORGE-LICENSE.txt`
+- `mods/` 內附的 YSM Shot MOD（[原始碼](https://github.com/moonlight0XD/ysmshot-mod)）：MIT；以 Minecraft Forge MDK 為範本建立，Forge 本身的授權見該儲存庫的 `FORGE-LICENSE.txt`
 
 本專案與 Yes Steve Model 官方無關，不包含、也不會解密任何 YSM 模型檔案。
