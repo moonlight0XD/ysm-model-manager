@@ -1775,12 +1775,23 @@
 
   const openPreview = guard(async (e) => {
     previewEntry = e;
+    $('btnCapture').hidden = false;
     $('previewTitle').textContent = displayName(e);
     $('previewStatus').textContent = '載入中…';
     $('previewModal').hidden = false;
     await loadIntoViewer(e, $('previewFrame'));
     $('previewStatus').textContent = '左鍵旋轉、右鍵平移、滾輪縮放；調好角度後可設為縮圖';
   });
+
+  // 獨立的模型預覽器（和網頁版 index.html 相同）：可拖入任何資料夾 / .zip，不需要先加入倉庫
+  $('btnViewer').onclick = () => {
+    previewEntry = null;
+    $('btnCapture').hidden = true;
+    $('previewTitle').textContent = 'YSM 模型預覽器';
+    $('previewStatus').textContent = '把模型資料夾或 .zip 拖進來，或用右上角的「開啟資料夾」「開啟 .zip」';
+    $('previewModal').hidden = false;
+    $('previewFrame').src = 'index.html?n=' + Date.now();
+  };
 
   function captureViewer(w) {
     const app = w.YSMApp;
