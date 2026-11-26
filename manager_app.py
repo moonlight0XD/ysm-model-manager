@@ -29,7 +29,7 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '1.3'
+APP_VERSION = '0.5'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
@@ -351,6 +351,32 @@ def guess_meta_from_summary(summary):
     """從公開摘要中找出常見欄位（名稱 / 作者），格式不明時僅顯示原文"""
     meta = {}
     if not summary or not summary.get('text'):
+        return meta
+    # YSM 官方匯出格式：「<name> 胡桃」「<author> 某人」，或 <author> 下一層縮排的 <name> / <role>
+    authors, cur = [], None
+    for line in summary['text'].splitlines():
+        m = re.match(r'^(\s*)<([\w-]+)>\s*(.*?)\s*$', line)
+        if not m:
+            continue
+        indent, tag, val = len(m.group(1)), m.group(2).lower(), m.group(3)
+        if indent and cur is not None:  # 作者底下的子欄位
+            if tag in ('name', 'role', 'comment') and val:
+                cur[tag] = val
+            continue
+        cur = None
+        if tag == 'author':
+            cur = {'name': val} if val else {}
+            authors.append(cur)
+        elif tag == 'name' and val:
+            meta.setdefault('name', val)
+        elif tag == 'license' and val:
+            meta['license'] = val
+        elif tag.startswith('link-') and val:
+            meta.setdefault('link', {})[tag[5:]] = val
+    authors = [a for a in authors if a.get('name')]
+    if authors:
+        meta['authors'] = authors
+    if meta:
         return meta
     for line in summary['text'].splitlines():
         m = re.match(r'\s*(name|model|名稱|名称|模型)\s*[:：=]\s*(.+)', line, re.I)
@@ -1256,12 +1282,13 @@ class Api:
         LIB.entries.pop(eid, None)
         return {'recycled': recycled}
 
-    def delete_many(self, ids):
-        """批量從倉庫刪除（只處理倉庫中的模型；遊戲實例中已安裝的那份不受影響）"""
+    def delete_many(self, ids, where='repo'):
+        """批量刪除。where='repo'：只刪倉庫中的（實例中已安裝的那份不受影響）；
+        where='instance'：只刪遊戲實例中的（倉庫中的不受影響）"""
         done, recycled, errors = 0, 0, []
         for eid in ids:
             e = LIB.entries.get(eid)
-            if not e or e.get('location') != 'repo':
+            if not e or (e.get('location') == 'repo') != (where == 'repo'):
                 continue
             try:
                 if self.delete_model(eid)['recycled']:
@@ -1629,6 +1656,24 @@ class Api:
             except OSError:
                 pass
         return rec
+
+    def clear_thumbs(self, keys):
+        """批量刪除縮圖，回傳 {key: 新的使用者資料}"""
+        olds, out = [], {}
+        with LIB.lock:
+            for key in dict.fromkeys(keys or []):
+                rec = LIB.record(key)
+                if rec.get('thumb'):
+                    olds.append(rec['thumb'])
+                    rec['thumb'] = ''
+                out[key] = rec
+            LIB.save()
+        for old in olds:
+            try:
+                os.remove(os.path.join(THUMB_DIR, old))
+            except OSError:
+                pass
+        return {'removed': len(olds), 'users': out}
 
     def _entry(self, eid):
         e = LIB.entries.get(eid)

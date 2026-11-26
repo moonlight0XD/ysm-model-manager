@@ -248,10 +248,26 @@
   $('btnRescan').onclick = rescan;
 
   // ---------------- 篩選與排序 ----------------
+  // 「全部」裡，倉庫有同一個模型（內容相同）的實例副本不另外顯示：倉庫那張卡已經標示「已裝」。
+  // 篩選停用狀態時照常顯示，免得實例中停用的那份被藏起來
+  let repoKeyCache = { list: null, keys: null };
+  function dupOfRepo(e) {
+    if (e.location === 'repo') return false;
+    if (repoKeyCache.list !== S.entries) repoKeyCache = { list: S.entries, keys: new Set(S.entries.filter((x) => x.location === 'repo').map((x) => x.key)) };
+    return repoKeyCache.keys.has(e.key);
+  }
+  // 卡片左上角：這個模型在哪裡（倉庫、以及有裝這個模型的遊戲實例）
+  function placesOf(e) {
+    const insts = e.location === 'repo'
+      ? (e.installs || []).map((i) => i.instance || instName(i.root))
+      : S.entries.filter((x) => x.location !== 'repo' && x.key === e.key).map((x) => instName(x.root));
+    return [...(e.location === 'repo' ? ['倉庫'] : []), ...new Set(insts)];
+  }
   function filtered() {
     const q = S.search.trim().toLowerCase();
     let list = S.entries.filter((e) => {
       if (S.loc !== 'all' && e.location !== S.loc) return false;
+      if (S.loc === 'all' && S.status === 'all' && dupOfRepo(e)) return false;
       // 瀏覽資料夾時只顯示這一層的模型（子資料夾以資料夾卡片顯示）；搜尋時包含所有子資料夾
       if (S.folder !== null && !(q ? inFolder(e, S.folder) : shownInFolder(e, S.folder))) return false;
       if (S.status === 'enabled' && !e.enabled) return false;
@@ -276,7 +292,7 @@
 
   function renderLoc() {
     const box = $('fLoc');
-    const opts = [['all', '全部', S.entries.length]];
+    const opts = [['all', '全部', S.entries.filter((e) => !dupOfRepo(e)).length]];
     if (S.repo) opts.push(['repo', '倉庫', S.entries.filter((e) => e.location === 'repo').length]);
     for (const r of S.roots) opts.push([r, instName(r), S.entries.filter((e) => e.location === r).length]);
     box.innerHTML = '';
@@ -309,7 +325,8 @@
   }
 
   // ---------------- 倉庫子資料夾 ----------------
-  function inFolder(e, f) { return e.location === 'repo' && (f === '' ? !e.group : e.group === f || (e.group || '').startsWith(f + '/')); }
+  // f 為 ''（倉庫最上層）時包含整個倉庫
+  function inFolder(e, f) { return e.location === 'repo' && (f === '' || e.group === f || (e.group || '').startsWith(f + '/')); }
   // 「模型資料夾」：沒有子資料夾、裡面只有一個角色（一個模型或同角色的多個版本）。
   // 這種資料夾不顯示成資料夾卡片，而是把模型卡片直接放在上一層。
   const parentOf = (f) => (f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '');
@@ -560,7 +577,9 @@
     $('grid').classList.toggle('picking', n > 0);
     $('selN').textContent = nf ? `${S.picked.size} 個模型、${nf} 個資料夾` : String(S.picked.size);
     const outside = S.picked.size - repoPicked().length;
-    $('selNote').textContent = (nf ? `（共 ${rp.length} 個模型）` : '') + (outside > 0 ? `（${outside} 個不在倉庫，安裝、移動、刪除時會略過）` : '');
+    $('selNote').textContent = (nf ? `（共 ${rp.length} 個模型）` : '') + (outside > 0 ? `（${outside} 個在遊戲實例中，安裝、移動時會略過）` : '');
+    $('selDelInst').hidden = outside <= 0;
+    $('selDelInst').textContent = `從實例刪除（${outside}）`;
     const insts = S.instances.filter((i) => i.is_instance && S.roots.includes(i.root));
     const keepI = $('selInst').value;
     $('selInst').innerHTML = insts.map((i) => `<option value="${esc(i.root)}">${esc(i.name)}</option>`).join('') || '<option value="">（沒有遊戲實例）</option>';
@@ -570,6 +589,9 @@
     if (['', ...S.folders].includes(keepF)) $('selFolder').value = keepF;
     $('selInstall').disabled = !rp.length || !insts.length;
     $('selMove').disabled = !anyRepo;
+    const nt = thumbPicked().length;
+    $('selThumbDel').disabled = !nt;
+    $('selThumbDel').textContent = nt ? `刪除縮圖（${nt}）` : '刪除縮圖';
     $('selDelete').disabled = !anyRepo;
     $('selDelete').textContent = anyRepo ? `從倉庫刪除（${rp.length}）` : '從倉庫刪除';
     document.querySelectorAll('.inst-pick').forEach((b) => {
@@ -671,11 +693,59 @@
     toast(`已刪除 ${fdone ? `${fdone} 個資料夾、` : ''}${done} 個模型${done ? (recycled === done ? '（已移到資源回收筒）' : recycled ? `（${recycled} 個移到資源回收筒）` : '（永久刪除）') : ''}${errors.length ? `；${errors.length} 個失敗：${errors[0]}` : ''}`, errors.length > 0);
     await rescan();
   });
+  // 批量刪除遊戲實例中的模型（倉庫中的那份不受影響）
+  $('selDelInst').onclick = guard(async () => {
+    const list = S.entries.filter((e) => S.picked.has(e.id) && e.location !== 'repo');
+    if (!list.length) { toast('沒有勾選遊戲實例中的模型'); return; }
+    const info = await api('delete_info', list[0].id);
+    const fate = info.recycle
+      ? '檔案會移到<b>資源回收筒</b>，需要時可以還原。'
+      : '<span class="warn">遊戲實例所在的磁碟沒有資源回收筒，刪除後無法復原！</span>';
+    const repoKeys = new Set(S.entries.filter((e) => e.location === 'repo').map((e) => e.key));
+    const noBackup = list.filter((e) => !repoKeys.has(e.key)).length;
+    const lines = list.map((e) => `・${esc(displayName(e))}　<span class="muted">${esc(instName(e.root))}</span>`);
+    const names = lines.slice(0, 10).join('\n') + (lines.length > 10 ? `\n…還有 ${lines.length - 10} 個` : '');
+    const size = list.reduce((a, e) => a + (e.size || 0), 0);
+    const r1 = await ask({
+      title: '從遊戲實例刪除',
+      body: `要從遊戲實例刪除 <b>${list.length} 個模型</b>嗎？（共 ${fmtSize(size)}）\n刪除後遊戲中就不能再使用這些模型；倉庫中的那份不受影響。\n\n${names}`
+        + (noBackup ? `\n\n<span class="warn">其中 ${noBackup} 個倉庫中沒有備份。</span>` : '\n\n倉庫中都有備份，之後可以再安裝回來。')
+        + `\n\n${fate}`,
+      ok: '刪除', danger: true,
+    });
+    if (!r1.ok) return;
+    if (!S.settings || S.settings.confirm_delete_twice !== false) {
+      const r2 = await ask({ title: '再次確認', body: `真的要從遊戲實例刪除 <b>${list.length} 個模型</b>嗎？\n\n${fate}`, ok: '確定刪除', cancel: '不要刪除', danger: true });
+      if (!r2.ok) return;
+    }
+    const r = await api('delete_many', list.map((e) => e.id), 'instance');
+    for (const e of list) S.picked.delete(e.id);
+    if (S.sel && list.some((e) => e.id === S.sel)) S.sel = null;
+    toast(`已從遊戲實例刪除 ${r.done} 個模型${r.done ? (r.recycled === r.done ? '（已移到資源回收筒）' : r.recycled ? `（${r.recycled} 個移到資源回收筒）` : '（永久刪除）') : ''}${r.errors.length ? `；${r.errors.length} 個失敗：${r.errors[0]}` : ''}`, r.errors.length > 0);
+    await rescan();
+  });
+
+  // 勾選的模型（任何位置）加上勾選資料夾中的模型，有縮圖的，依模型 key 去重
+  function thumbPicked() {
+    const fs = [...S.pickedFolders];
+    const seen = new Set();
+    return S.entries.filter((e) => (S.picked.has(e.id) || fs.some((f) => inFolder(e, f))) && e.user && e.user.thumb && !seen.has(e.key) && seen.add(e.key));
+  }
+  $('selThumbDel').onclick = guard(async () => {
+    const list = thumbPicked();
+    if (!list.length) { toast('勾選的模型都沒有縮圖'); return; }
+    if (!(await confirmBox('刪除縮圖', `刪除 ${list.length} 個模型的縮圖？\n\n只會刪除縮圖圖片，模型檔案不受影響。刪除後無法復原，需要時可以重新產生。`, { ok: '刪除縮圖', danger: true }))) return;
+    const r = await api('clear_thumbs', list.map((e) => e.key));
+    for (const [k, rec] of Object.entries(r.users)) applyUser(k, rec);
+    toast(`已刪除 ${r.removed} 張縮圖`);
+    renderGrid(); renderDetail(); updateSelUI();
+  });
   $('selFolder').onchange =() => { if ($('selFolder').value === '\u0000new') $('selMove').click(); };
   $('selNone').onclick = () => { S.picked.clear(); S.pickedFolders.clear(); refreshPicks(); };
+  // 全選目前篩選結果的所有模型（包含其他分頁、合併在同一張卡裡的所有版本），瀏覽資料夾時連同這一層的子資料夾
   $('selPage').onclick = () => {
-    document.querySelectorAll('#grid .card[data-id]').forEach((c) => S.picked.add(c.dataset.id));
-    document.querySelectorAll('#grid .card[data-folder]').forEach((c) => S.pickedFolders.add(c.dataset.folder));
+    for (const it of groupVersions(filtered())) for (const v of versionsOf(it.e)) S.picked.add(v.id);
+    if (browsingFolders()) for (const f of childFolders(S.folder).filter((x) => !modelFolders().has(x))) S.pickedFolders.add(f);
     refreshPicks();
   };
   window.addEventListener('keydown', (ev) => {
@@ -750,7 +820,29 @@
     const byVer = va && vb ? cmpVer(vb, va) : (va ? -1 : vb ? 1 : 0);
     return byVer || b.mtime - a.mtime;
   };
-  const groupKey = (e) => e.location + '|' + verInfo(e).base;
+  // 同名但作者完全不同的（例如兩位作者各做的「胡桃」）不合併；作者有重疊的視為同一系列。
+  // 沒有作者資訊的：同名只有一個作者系列時併進去，否則自成一組
+  const authorSet = (e) => new Set(((e.meta && e.meta.authors) || []).map((a) => String(a.name || '').trim().toLowerCase()).filter(Boolean));
+  function groupKey(e) {
+    if (e._gk) return e._gk;
+    const base = e.location + '|' + verInfo(e).base;
+    const same = S.entries.filter((x) => x.location + '|' + verInfo(x).base === base);
+    const clusters = []; // [{ names: Set, members: [] }]
+    const unknown = [];
+    for (const x of same) {
+      const names = authorSet(x);
+      if (!names.size) { unknown.push(x); continue; }
+      const hit = clusters.filter((c) => [...names].some((n) => c.names.has(n)));
+      const c = hit[0] || { names: new Set(), members: [] };
+      if (!hit.length) clusters.push(c);
+      for (const o of hit.slice(1)) { o.names.forEach((n) => c.names.add(n)); c.members.push(...o.members); clusters.splice(clusters.indexOf(o), 1); }
+      names.forEach((n) => c.names.add(n));
+      c.members.push(x);
+    }
+    clusters.forEach((c, i) => c.members.forEach((x) => { x._gk = base + '|' + i; }));
+    unknown.forEach((x) => { x._gk = base + '|' + (clusters.length === 1 ? 0 : '?'); });
+    return e._gk || (e._gk = base + '|?');
+  }
   const grouping = () => !S.settings || S.settings.group_versions !== false;
   function versionsOf(e) {
     if (!grouping()) return [e];
@@ -807,7 +899,7 @@
       const th = thumbURL(e) || thumbURL(it.members.find((m) => m.user.thumb) || e);
       const stars = e.user.rating ? '★'.repeat(e.user.rating) : '';
       c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="勾選（Ctrl / Shift + 點擊卡片也可以）">✓</span>
-          <span class="badge${e.location === 'repo' ? ' repo' : ''}">${e.location === 'repo' ? '倉庫 · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? '<span class="badge lock">加密</span>' : ''}${e.enabled ? '' : '<span class="badge offb">已停用</span>'}${it.members.length > 1 ? `<span class="badge ver" title="同一個角色有 ${it.members.length} 個版本，點開可切換">${it.members.length} 個版本</span>` : ''}
+          <span class="badge${e.location === 'repo' ? ' repo' : ''}" title="${esc(placesOf(e).join('、'))}">${esc(placesOf(e).join('＋'))}${placesOf(e).length ? ' · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? '<span class="badge lock">加密</span>' : ''}${e.enabled ? '' : '<span class="badge offb">已停用</span>'}${it.members.length > 1 ? `<span class="badge ver" title="同一個角色有 ${it.members.length} 個版本，點開可切換">${it.members.length} 個版本</span>` : ''}
           ${e.location === 'repo' ? `<span class="badge inst">已裝 ${e.installs.length}/${S.instances.filter((i) => i.is_instance).length}</span>` : (S.repo && !e.repo_id ? '<span class="badge norepo">未入庫</span>' : '')}</div>
         <div class="meta"><div class="nm" title="${esc(displayName(e))}">${esc(displayName(e))}</div>
           <div class="au">${esc(authorText(e) || e.filename)}</div>
@@ -1054,6 +1146,7 @@
     const th = thumbURL(e);
     const authors = (m.authors || []).map((a) => `<div class="author-line">${esc(a.name)}${a.role ? ` <span class="r">· ${esc(a.role)}</span>` : ''}</div>`).join('');
     box.innerHTML = `
+      <button class="d-close" id="dClose" title="關閉">✕</button>
       <div class="d-thumb ${th ? 'has' : ''}" id="dThumb" ${th ? `style="background-image:url('${th}')"` : ''}>
         <div class="hint">把圖片拖到這裡、按 Ctrl+V 貼上，<br>或用下方按鈕設定縮圖</div>
       </div>
@@ -1101,6 +1194,7 @@
     bindInstallSection(box, e);
     q('bShot').onclick = () => openShots();
     q('bImg').onclick = () => $('imgPick').click();
+    q('dClose').onclick = () => { S.sel = null; renderGrid(); renderDetail(); };
     if (q('bClr')) q('bClr').onclick = guard(async () => { applyUser(e.key, await api('clear_thumb', e.key)); renderGrid(); renderDetail(); });
     if (q('bPrev')) q('bPrev').onclick = () => openPreview(e);
     if (q('bToggle')) q('bToggle').onclick = guard(async () => {

@@ -81,10 +81,12 @@
     </div>
     <div id="selBar" hidden>
       <span class="sel-n">已選 <b id="selN">0</b> 個<span class="muted" id="selNote"></span></span>
-      <button class="btn small ghost" id="selPage">全選本頁</button>
+      <button class="btn small ghost" id="selPage" title="勾選目前篩選結果中的全部模型（包含其他分頁）">全選全部</button>
       <button class="btn small ghost" id="selNone">取消選取</button>
       <span class="sel-grp">安裝到<select id="selInst"></select><button class="btn small" id="selInstall">安裝</button></span>
       <span class="sel-grp">移到<select id="selFolder"></select><button class="btn small ghost" id="selMove">移動</button></span>
+      <button class="btn small ghost" id="selThumbDel" title="刪除勾選模型的縮圖（模型檔案不受影響）">刪除縮圖</button>
+      <button class="btn small danger" id="selDelInst" title="把勾選的、在遊戲實例中的模型刪除（倉庫中的不受影響）" hidden>從實例刪除</button>
       <button class="btn small danger" id="selDelete" title="把勾選的模型從倉庫刪除（遊戲實例中已安裝的不受影響）">從倉庫刪除</button>
     </div>
     <div id="crumbs" hidden></div>

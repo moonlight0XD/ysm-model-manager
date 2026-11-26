@@ -154,7 +154,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-2); 
 .roots li .inst-pick:disabled { opacity: .45; cursor: default; }
 .thumb { aspect-ratio: 3 / 4; background: #1a1c22 center / cover no-repeat; position: relative; display: flex; align-items: center; justify-content: center; }
 .thumb .ph { color: #4b515e; font-size: 34px; font-weight: 700; letter-spacing: 1px; }
-.badge { position: absolute; top: 6px; left: 6px; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: rgba(0,0,0,.65); color: #fff; }
+.badge { position: absolute; top: 6px; left: 6px; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: rgba(0,0,0,.65); color: #fff; max-width: calc(100% - 64px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .link-list { display: flex; flex-direction: column; gap: 4px; }
 .link-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .link-row .n { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -186,6 +186,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-2); 
 #detail { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; min-width: 0; }
 #app.no-detail #detail { display: none; }
 #detailBody { padding: 14px; }
+.d-close { position: sticky; top: 0; float: right; z-index: 3; margin: -6px -6px -24px 0; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: rgba(29, 32, 39, .88); color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.d-close:hover { color: #fff; background: #3a3f4a; }
 .d-thumb { aspect-ratio: 3 / 4; border-radius: 10px; background: #1a1c22 center / cover no-repeat; border: 1px dashed var(--line); display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 16px; line-height: 1.6; position: relative; }
 .d-thumb.has { border-style: solid; }
 .d-thumb.drag { border-color: var(--accent); background-color: #1f2a3a; }
