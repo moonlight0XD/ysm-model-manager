@@ -11,9 +11,14 @@ if not defined PY (
   echo 找不到 Python，請先安裝 Python 3
   exit /b 1
 )
+rem exe 的版本資訊（右鍵內容 → 詳細資料），版本號取自 manager_app.py 的 APP_VERSION
+if not exist "%TEMP%\ysm_manager_build" mkdir "%TEMP%\ysm_manager_build"
+%PY% "%~dp0make_version.py" "%TEMP%\ysm_manager_build\version_info.txt"
+if errorlevel 1 exit /b 1
 rem Windows 版只用 Edge WebView2：排除電腦上剛好裝了、但用不到的套件（PyQt 等），縮小 exe
 %PY% -m PyInstaller --noconfirm --onefile --windowed --name "YSM模型管理器" ^
   --workpath "%TEMP%\ysm_manager_build" --specpath "%TEMP%\ysm_manager_build" ^
+  --version-file "%TEMP%\ysm_manager_build\version_info.txt" ^
   --add-data "%~dp0index.html;." --add-data "%~dp0manager.html;." ^
   --add-data "%~dp0css;css" --add-data "%~dp0js;js" --add-data "%~dp0lib;lib" ^
   --add-data "%~dp0mods;mods" ^

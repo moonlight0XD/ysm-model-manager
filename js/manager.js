@@ -488,7 +488,7 @@
         ? `<div class="mosaic n${thumbs.length}">${thumbs.map((t) => `<i style="background-image:url('${t}')"></i>`).join('')}</div>`
         : '<span class="ficon">📁</span>'}
           <span class="badge fbadge">📁 資料夾</span>
-          <span class="pick" title="勾選（Ctrl / Shift + 點擊也可以）">✓</span></div>
+          <span class="pick" title="勾選（也可以 Ctrl / Shift + 點擊，或在空白處拖曳框選）">✓</span></div>
         <div class="meta"><div class="nm">${esc(f.split('/').pop())}</div>
           <div class="au">${inside.length} 個模型${subs ? `・${subs} 個子資料夾` : ''}</div></div>`;
       c.onclick = (ev) => {
@@ -529,6 +529,98 @@
   window.addEventListener('blur', hideMenu);
   window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hideMenu(); });
   $('grid').addEventListener('scroll', hideMenu);
+
+  // ---- 左側欄可拖曳右邊界調整寬度（雙擊還原），寬度會記住 ----
+  (() => {
+    const app = $('app');
+    const h = document.createElement('div');
+    h.id = 'sideResize';
+    h.title = '拖曳調整左側欄寬度（雙擊還原）';
+    document.body.appendChild(h);
+    const MIN = 200, MAX = 520, DEF = 240;
+    const clamp = (w) => Math.max(MIN, Math.min(MAX, Math.min(w, innerWidth - 560)));
+    const apply = (w) => { app.style.setProperty('--side-w', w + 'px'); h.style.left = w + 'px'; };
+    let w = DEF;
+    try { w = Number(localStorage.getItem('ysmgr.sideW')) || DEF; } catch (e) { /* 忽略 */ }
+    apply(clamp(w));
+    const save = (v) => { try { localStorage.setItem('ysmgr.sideW', String(v)); } catch (e) { /* 忽略 */ } };
+    h.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      h.classList.add('drag'); document.body.classList.add('resizing');
+      const move = (e) => { w = clamp(e.clientX); apply(w); };
+      const up = () => {
+        window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+        h.classList.remove('drag'); document.body.classList.remove('resizing'); save(w);
+      };
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    });
+    h.addEventListener('dblclick', () => { w = DEF; apply(w); save(w); });
+    window.addEventListener('resize', () => apply(clamp(w)));
+  })();
+
+  // ---- 框選：在卡片之間的空白處按住左鍵拖曳，框到的卡片會被勾選（Ctrl = 反轉勾選）；只點一下空白處則取消勾選 ----
+  (() => {
+    const grid = $('grid');
+    const box = document.createElement('div');
+    box.id = 'marquee';
+    box.hidden = true;
+    document.body.appendChild(box);
+    let st = null;
+    const pt = (ev) => { const r = grid.getBoundingClientRect(); return { x: ev.clientX - r.left + grid.scrollLeft, y: ev.clientY - r.top + grid.scrollTop }; };
+    function update() {
+      const r = grid.getBoundingClientRect();
+      const x1 = Math.min(st.a.x, st.b.x), x2 = Math.max(st.a.x, st.b.x);
+      const y1 = Math.min(st.a.y, st.b.y), y2 = Math.max(st.a.y, st.b.y);
+      if (!st.moved && x2 - x1 < 5 && y2 - y1 < 5) return;
+      st.moved = true;
+      // 畫框（限制在網格可見範圍內）
+      const L = Math.max(r.left, r.left + x1 - grid.scrollLeft), R = Math.min(r.right, r.left + x2 - grid.scrollLeft);
+      const T = Math.max(r.top, r.top + y1 - grid.scrollTop), B = Math.min(r.bottom, r.top + y2 - grid.scrollTop);
+      Object.assign(box.style, { left: L + 'px', top: T + 'px', width: Math.max(0, R - L) + 'px', height: Math.max(0, B - T) + 'px' });
+      box.hidden = false;
+      S.picked = new Set(st.ids);
+      S.pickedFolders = new Set(st.folders);
+      for (const c of grid.querySelectorAll('.card')) {
+        const cr = c.getBoundingClientRect();
+        const cx1 = cr.left - r.left + grid.scrollLeft, cy1 = cr.top - r.top + grid.scrollTop;
+        if (cx1 > x2 || cx1 + cr.width < x1 || cy1 > y2 || cy1 + cr.height < y1) continue;
+        const set = c.dataset.folder !== undefined ? S.pickedFolders : S.picked;
+        const k = c.dataset.folder !== undefined ? c.dataset.folder : c.dataset.id;
+        if (st.toggle && set.has(k)) set.delete(k); else set.add(k);
+      }
+      refreshPicks();
+    }
+    grid.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0 || ev.target.closest('.card')) return;
+      if (ev.offsetX >= grid.clientWidth || ev.offsetY >= grid.clientHeight) return; // 點在捲軸上
+      ev.preventDefault();
+      const p = pt(ev);
+      st = { a: p, b: p, mx: ev.clientY, toggle: ev.ctrlKey || ev.metaKey, menu: !ctx.hidden, ids: [...S.picked], folders: [...S.pickedFolders], moved: false };
+      // 拖到網格上下邊緣時自動捲動
+      st.timer = setInterval(() => {
+        const r = grid.getBoundingClientRect();
+        const d = st.mx < r.top + 30 ? -18 : st.mx > r.bottom - 30 ? 18 : 0;
+        if (d) { grid.scrollTop += d; st.b = { x: st.b.x, y: Math.max(0, Math.min(grid.scrollHeight, st.b.y + d)) }; update(); }
+      }, 30);
+    });
+    window.addEventListener('mousemove', (ev) => {
+      if (!st) return;
+      st.mx = ev.clientY;
+      st.b = pt(ev);
+      update();
+    });
+    window.addEventListener('mouseup', () => {
+      if (!st) return;
+      clearInterval(st.timer);
+      box.hidden = true;
+      // 沒有拖曳、只是點一下空白處 → 取消全部勾選（Ctrl 點不算）
+      if (!st.moved && !st.toggle && !st.menu && (S.picked.size || S.pickedFolders.size)) {
+        S.picked.clear(); S.pickedFolders.clear(); refreshPicks();
+      }
+      st = null;
+    });
+  })();
   $('grid').addEventListener('contextmenu', (ev) => {
     if (!(S.repo && S.loc === 'repo' && S.folder !== null)) return;
     ev.preventDefault();
@@ -591,6 +683,8 @@
     $('selMove').disabled = !anyRepo;
     const nt = thumbPicked().length;
     $('selThumbDel').disabled = !nt;
+    $('selThumbBg').disabled = !nt;
+    $('selThumbBg').textContent = nt ? `換背景（${nt}）` : '換背景';
     $('selThumbDel').textContent = nt ? `刪除縮圖（${nt}）` : '刪除縮圖';
     $('selDelete').disabled = !anyRepo;
     $('selDelete').textContent = anyRepo ? `從倉庫刪除（${rp.length}）` : '從倉庫刪除';
@@ -738,6 +832,112 @@
     const r = await api('clear_thumbs', list.map((e) => e.key));
     for (const [k, rec] of Object.entries(r.users)) applyUser(k, rec);
     toast(`已刪除 ${r.removed} 張縮圖`);
+    renderGrid(); renderDetail(); updateSelUI();
+  });
+  // ---- 批量換背景：只處理透明背景的縮圖，原圖會保留（thumb_src），可以再換或還原 ----
+  const BG = { mode: 'solid', img: null, list: [] };
+  const BG_PRESETS = [
+    { n: '深色', mode: 'solid', c1: '#23272f' }, { n: '淺灰', mode: 'solid', c1: '#e9ecf1' },
+    { n: '天空', mode: 'grad', g1: '#7ec8ff', g2: '#e3f4ff' }, { n: '草地', mode: 'grad', g1: '#9fd6ff', g2: '#5fae4c' },
+    { n: '夕陽', mode: 'grad', g1: '#ffb36b', g2: '#ff6f91' }, { n: '星空', mode: 'grad', g1: '#0b0f1e', g2: '#2a3a78' },
+  ];
+  const srcURL = (e) => {
+    const n = e.user && (e.user.thumb_src || e.user.thumb);
+    return n ? `/api/thumb/${encodeURIComponent(n)}?${tq}` : '';
+  };
+  const loadImg = (url) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error('讀不到縮圖')); i.src = url; });
+  function hasAlpha(img) {
+    const c = document.createElement('canvas');
+    const w = c.width = Math.min(img.naturalWidth, 160), h = c.height = Math.round(img.naturalHeight * w / img.naturalWidth) || 1;
+    const x = c.getContext('2d');
+    x.drawImage(img, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return true;
+    return false;
+  }
+  function composeBg(img) {
+    const c = document.createElement('canvas');
+    const W = c.width = img.naturalWidth, H = c.height = img.naturalHeight;
+    const x = c.getContext('2d');
+    if (BG.mode === 'solid') { x.fillStyle = $('bgC1').value; x.fillRect(0, 0, W, H); }
+    else if (BG.mode === 'grad') {
+      const g = x.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, $('bgG1').value); g.addColorStop(1, $('bgG2').value);
+      x.fillStyle = g; x.fillRect(0, 0, W, H);
+    } else if (BG.mode === 'image' && BG.img) {
+      const s = Math.max(W / BG.img.naturalWidth, H / BG.img.naturalHeight);  // 填滿、置中裁切
+      const w = BG.img.naturalWidth * s, h = BG.img.naturalHeight * s;
+      x.drawImage(BG.img, (W - w) / 2, (H - h) / 2, w, h);
+    }
+    x.drawImage(img, 0, 0);
+    return c;
+  }
+  function setBgMode(m) {
+    BG.mode = m;
+    $('bgMode').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+    document.querySelectorAll('#bgModal .bg-row').forEach((r) => { r.hidden = r.dataset.for !== m; });
+    bgPreview();
+  }
+  let bgPrevImg = null;
+  function bgPreview() {
+    const box = $('bgPrev');
+    if (!bgPrevImg) { box.style.backgroundImage = ''; return; }
+    const url = BG.mode === 'none' ? bgPrevImg.src : composeBg(bgPrevImg).toDataURL('image/png');
+    box.style.backgroundImage = `url('${url}')`;
+  }
+  $('bgPresets').innerHTML = BG_PRESETS.map((p, i) => `<button class="bg-pre" data-i="${i}" title="${p.n}" style="background:${p.mode === 'solid' ? p.c1 : `linear-gradient(${p.g1}, ${p.g2})`}"><span>${p.n}</span></button>`).join('');
+  $('bgPresets').onclick = (ev) => {
+    const b = ev.target.closest('.bg-pre'); if (!b) return;
+    const p = BG_PRESETS[+b.dataset.i];
+    if (p.mode === 'solid') $('bgC1').value = p.c1; else { $('bgG1').value = p.g1; $('bgG2').value = p.g2; }
+    setBgMode(p.mode);
+  };
+  $('bgMode').onclick = (ev) => { const b = ev.target.closest('button'); if (b) setBgMode(b.dataset.m); };
+  for (const id of ['bgC1', 'bgG1', 'bgG2']) $(id).oninput = bgPreview;
+  $('bgPick').onclick = () => $('bgFile').click();
+  $('bgFile').onchange = guard(async () => {
+    const f = $('bgFile').files[0]; if (!f) return;
+    const url = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
+    BG.img = await loadImg(url);
+    $('bgImgName').textContent = f.name;
+    bgPreview();
+  });
+  $('selThumbBg').onclick = guard(async () => {
+    BG.list = thumbPicked();
+    if (!BG.list.length) { toast('勾選的模型都沒有縮圖'); return; }
+    bgPrevImg = null;
+    const withSrc = BG.list.filter((e) => e.user.thumb_src).length;
+    $('bgInfo').textContent = `${BG.list.length} 個模型有縮圖${withSrc ? `，其中 ${withSrc} 個換過背景` : ''}`;
+    $('bgModal').hidden = false;
+    // 預覽用第一張透明背景的縮圖
+    for (const e of BG.list.slice(0, 30)) {
+      try { const im = await loadImg(srcURL(e)); if (hasAlpha(im)) { bgPrevImg = im; $('bgPrevName').textContent = displayName(e); break; } } catch (err) { /* 略過 */ }
+    }
+    if (!bgPrevImg) $('bgPrevName').textContent = '前幾個都不是透明背景的縮圖';
+    bgPreview();
+  });
+  $('bgApply').onclick = guard(async () => {
+    const list = BG.list;
+    if (BG.mode === 'image' && !BG.img) { toast('請先選擇背景圖片', true); return; }
+    closeModal($('bgModal'));
+    if (BG.mode === 'none') {
+      const r = await api('restore_thumb_bg', list.map((e) => e.key));
+      for (const [k, rec] of Object.entries(r.users)) applyUser(k, rec);
+      toast(r.restored ? `已還原 ${r.restored} 張縮圖的原本背景` : '勾選的縮圖都沒有換過背景');
+    } else {
+      let done = 0, skip = 0, fail = 0;
+      for (const [i, e] of list.entries()) {
+        toast(`換背景中… ${i + 1} / ${list.length}`);
+        try {
+          const im = await loadImg(srcURL(e));
+          if (!hasAlpha(im)) { skip++; continue; }
+          const rec = await api('set_thumb_bg', e.key, composeBg(im).toDataURL('image/png'));
+          applyUser(e.key, rec);
+          done++;
+        } catch (err) { fail++; }
+      }
+      toast(`已換 ${done} 張縮圖的背景${skip ? `，略過 ${skip} 張（不是透明背景，例如沒有去除背景的遊戲截圖）` : ''}${fail ? `，${fail} 張失敗` : ''}`, fail > 0);
+    }
     renderGrid(); renderDetail(); updateSelUI();
   });
   $('selFolder').onchange =() => { if ($('selFolder').value === '\u0000new') $('selMove').click(); };
@@ -898,7 +1098,7 @@
       // 這個版本沒有縮圖時，借用同角色其他版本的
       const th = thumbURL(e) || thumbURL(it.members.find((m) => m.user.thumb) || e);
       const stars = e.user.rating ? '★'.repeat(e.user.rating) : '';
-      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="勾選（Ctrl / Shift + 點擊卡片也可以）">✓</span>
+      c.innerHTML = `<div class="thumb" ${th ? `style="background-image:url('${th}')"` : ''}>${th ? '' : `<span class="ph">${esc(kindLabel[e.kind] || '?')}</span>`}<span class="pick" title="勾選（也可以 Ctrl / Shift + 點擊卡片，或在卡片之間的空白處拖曳框選）">✓</span>
           <span class="badge${e.location === 'repo' ? ' repo' : ''}" title="${esc(placesOf(e).join('、'))}">${esc(placesOf(e).join('＋'))}${placesOf(e).length ? ' · ' : ''}${esc(kindLabel[e.kind] || e.kind)}</span>${e.kind === 'ysm' ? '<span class="badge lock">加密</span>' : ''}${e.enabled ? '' : '<span class="badge offb">已停用</span>'}${it.members.length > 1 ? `<span class="badge ver" title="同一個角色有 ${it.members.length} 個版本，點開可切換">${it.members.length} 個版本</span>` : ''}
           ${e.location === 'repo' ? `<span class="badge inst">已裝 ${e.installs.length}/${S.instances.filter((i) => i.is_instance).length}</span>` : (S.repo && !e.repo_id ? '<span class="badge norepo">未入庫</span>' : '')}</div>
         <div class="meta"><div class="nm" title="${esc(displayName(e))}">${esc(displayName(e))}</div>
@@ -1202,7 +1402,9 @@
       toast(e.enabled ? '已停用（移到 ysm_manager_disabled，遊戲不會載入）' : '已啟用');
       const keepKey = e.key;
       await rescan();
-      const again = S.entries.find((x) => x.key === keepKey && x.enabled !== e.enabled);
+      // 同一個模型可能倉庫和實例都有，優先選回同一個位置的那份
+      const again = S.entries.find((x) => x.key === keepKey && x.enabled !== e.enabled && x.location === e.location)
+        || S.entries.find((x) => x.key === keepKey && x.enabled !== e.enabled);
       if (again) { S.sel = again.id; renderGrid(); renderDetail(); }
     });
     q('bReveal').onclick = guard(() => api('reveal', e.id));
@@ -1512,6 +1714,9 @@
     const g = out.getContext('2d');
     g.imageSmoothingQuality = 'high';
     g.drawImage(img, sx, sy, sh * ASPECT, sh, 0, 0, out.width, out.height);
+    // 有透明部分（3D 預覽擷取）就存 PNG，之後才能換背景；不透明的（遊戲畫面）維持 JPEG 省空間
+    const d = g.getImageData(0, 0, out.width, out.height).data;
+    for (let i = 3; i < d.length; i += 16) if (d[i] < 250) return out.toDataURL('image/png');
     return out.toDataURL('image/jpeg', 0.9);
   }
 
@@ -1578,6 +1783,8 @@
   });
 
   function captureViewer(w) {
+    const app = w.YSMApp;
+    if (app && app.captureTransparent) return loadImage(app.captureTransparent());
     const cv = w.document.getElementById('canvas');
     return loadImage(cv.toDataURL('image/png'));
   }
@@ -1829,12 +2036,114 @@
     return shot;
   }
 
-  async function shootOne(r) {
+  async function gameShot(cmds, wait) {
     const hwnd = $('gWin').value;
     if (!hwnd) throw new Error('請先選擇遊戲視窗（開啟遊戲後按「重新整理」）');
-    const res = await api('game_shot', hwnd, $('gInst').value, buildCmd(r), Number($('gWait').value) || 1);
+    const res = await api('game_shot', hwnd, $('gInst').value, cmds, wait);
     const blob = await (await fetch(`/api/shot?p=${encodeURIComponent(res.path)}&${tq}`)).blob();
     return loadImage(URL.createObjectURL(blob));
+  }
+  // 去背：先隱形拍一張空背景（G.plate），之後的第一張截圖順便解除隱形
+  const INVIS_ON = '/effect give @s minecraft:invisibility 999999 0 true';
+  const INVIS_OFF = '/effect clear @s minecraft:invisibility';
+  const cutoutOn = () => $('gCutout').checked;
+  $('gCutout').checked = LS.get('cutout', true);
+  $('gCutout').onchange = () => LS.set('cutout', $('gCutout').checked);
+  async function takePlate() {
+    G.plate = null;
+    gStatus('去背準備：先讓角色隱形，拍一張空背景…（請不要動鍵盤滑鼠）');
+    G.plate = await gameShot([INVIS_ON], 1);
+    G.invis = true;
+  }
+  async function shootOne(r) {
+    const cmds = [buildCmd(r)];
+    if (G.invis) cmds.unshift(INVIS_OFF);
+    const img = await gameShot(cmds, Number($('gWait').value) || 1);
+    G.invis = false;
+    return img;
+  }
+  /** 縮圖：有空背景就去背（透明 PNG），否則照原本裁切 */
+  function gameThumb(img, x, y, h) {
+    const p = G.plate;
+    if (!cutoutOn() || !p || p.naturalWidth !== img.naturalWidth || p.naturalHeight !== img.naturalHeight) return cropToDataURL(img, x, y, h);
+    return cutoutToDataURL(img, p, x, y, h);
+  }
+
+  /**
+   * 和空背景比對去背：差異大的像素算角色，像「變暗但顏色相同」的算影子（當背景），
+   * 再去掉零碎雜點、補上角色內部的小洞、邊緣柔化。
+   */
+  function cutoutToDataURL(img, plate, sx, sy, sh) {
+    const H = Math.min(800, Math.round(sh)), W = Math.round(H * ASPECT);
+    const grab = (im) => {
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+      g.drawImage(im, sx, sy, sh * ASPECT, sh, 0, 0, W, H);
+      return [c, g, g.getImageData(0, 0, W, H)];
+    };
+    const [out, og, A] = grab(img);
+    const B = grab(plate)[2];
+    const a = A.data, b = B.data, N = W * H;
+    const fg = new Uint8Array(N);
+    for (let i = 0, j = 0; i < N; i++, j += 4) {
+      const r1 = a[j], g1 = a[j + 1], b1 = a[j + 2], r0 = b[j], g0 = b[j + 1], b0 = b[j + 2];
+      const d = Math.max(Math.abs(r1 - r0), Math.abs(g1 - g0), Math.abs(b1 - b0));
+      if (d < 28) continue;
+      // 影子：比背景暗、但色調相同
+      const s1 = r1 + g1 + b1 + 1, s0 = r0 + g0 + b0 + 1, k = s1 / s0;
+      if (k > 0.4 && k < 0.97 && Math.abs(r1 / s1 - r0 / s0) + Math.abs(g1 / s1 - g0 / s0) + Math.abs(b1 / s1 - b0 / s0) < 0.05 + 24 / s1) continue;
+      fg[i] = 1;
+    }
+    // 連通區域（4 鄰接）
+    const lab = new Int32Array(N), stack = new Int32Array(N);
+    function regions(val) {
+      lab.fill(0);
+      const sizes = [0];
+      for (let s = 0; s < N; s++) {
+        if (fg[s] !== val || lab[s]) continue;
+        const id = sizes.length; let n = 0, top = 0;
+        stack[top++] = s; lab[s] = id;
+        while (top) {
+          const p = stack[--top]; n++;
+          const x = p % W;
+          if (x > 0 && fg[p - 1] === val && !lab[p - 1]) { lab[p - 1] = id; stack[top++] = p - 1; }
+          if (x < W - 1 && fg[p + 1] === val && !lab[p + 1]) { lab[p + 1] = id; stack[top++] = p + 1; }
+          if (p >= W && fg[p - W] === val && !lab[p - W]) { lab[p - W] = id; stack[top++] = p - W; }
+          if (p < N - W && fg[p + W] === val && !lab[p + W]) { lab[p + W] = id; stack[top++] = p + W; }
+        }
+        sizes.push(n);
+      }
+      return sizes;
+    }
+    // 去掉零碎雜點（小於畫面 0.15%）
+    let sizes = regions(1);
+    const minFg = N * 0.0015;
+    for (let i = 0; i < N; i++) if (fg[i] && sizes[lab[i]] < minFg) fg[i] = 0;
+    if (!fg.some((v) => v)) throw new Error('去背失敗：截圖和空背景幾乎一樣。可能是模型沒有切換、隱形時模型仍然顯示，或視角有移動；可以取消勾選「去除遊戲背景」');
+    // 補洞：被角色包住（沒碰到邊緣）、又不太大的背景區塊，視為角色內部和背景同色的部分
+    sizes = regions(0);
+    const touch = new Uint8Array(sizes.length);
+    for (let x = 0; x < W; x++) { touch[lab[x]] = 1; touch[lab[N - W + x]] = 1; }
+    for (let y = 0; y < H; y++) { touch[lab[y * W]] = 1; touch[lab[y * W + W - 1]] = 1; }
+    let fgN = 0; for (let i = 0; i < N; i++) fgN += fg[i];
+    const maxHole = Math.max(N * 0.004, fgN * 0.5);
+    for (let i = 0; i < N; i++) if (!fg[i] && !touch[lab[i]] && sizes[lab[i]] < maxHole) fg[i] = 1;
+    // 邊緣柔化（3×3 平均）
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let s = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy; if (yy < 0 || yy >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx; if (xx < 0 || xx >= W) continue;
+            s += fg[yy * W + xx]; c++;
+          }
+        }
+        a[(y * W + x) * 4 + 3] = Math.round(255 * s / c);
+      }
+    }
+    og.putImageData(A, 0, 0);
+    return out.toDataURL('image/png');
   }
 
   function relToAbs(img, rel) {
@@ -1860,14 +2169,15 @@
       } catch (e) { setRowState(r, 'err'); gStatus(e.message, true); } finally { G.running = false; }
       return;
     }
-    gStatus(`試拍：${displayName(r.e)}…（請不要動鍵盤滑鼠）`);
     try {
+      if (cutoutOn()) await takePlate(); else G.plate = null;
+      gStatus(`試拍：${displayName(r.e)}…（請不要動鍵盤滑鼠）`);
       const img = await shootOne(r);
       gStatus('拍好了。請確認畫面中的模型已切換成「' + displayName(r.e) + '」，再框出縮圖範圍。');
       openCrop(img, async (rect) => {
         const iw = img.naturalWidth, ih = img.naturalHeight;
         LS.set('crop', { fx: rect.x / iw, fy: rect.y / ih, fh: rect.h / ih });
-        await saveThumbFor(r.e, cropToDataURL(img, rect.x, rect.y, rect.h));
+        await saveThumbFor(r.e, gameThumb(img, rect.x, rect.y, rect.h));
         setRowState(r, 'done');
         r.el.querySelector('.th').style.backgroundImage = `url('${thumbURL(r.e)}')`;
         gCropInfo();
@@ -1912,13 +2222,16 @@
         gStatus(`完成 ${done} 個${skipped ? `，略過 ${skipped} 個遊戲中找不到 ID 的（紅框）` : ''}${failed ? `，${failed} 個沒拍到角色` : ''}${warned ? `，${warned} 個有遊戲訊息（黃色），請檢查模型 ID 是否正確` : ''}。`, failed > 0 || skipped > 0);
         return;
       }
+      if (cutoutOn()) {
+        try { await takePlate(); } catch (e) { gStatus(e.message, true); return; }
+      } else G.plate = null;
       for (const r of todo) {
         if (await checkpoint(done, todo.length)) { gStatus(`已停止：完成 ${done} 個，還有 ${todo.length - done} 個沒拍（仍保持勾選，可再按「開始批次截圖」繼續）。`); return; }
         gStatus(`截圖中 ${done + 1} / ${todo.length}：${displayName(r.e)}（切換到其他視窗即可停止）`);
         try {
           const img = await shootOne(r);
           const a = relToAbs(img, rel);
-          await saveThumbFor(r.e, cropToDataURL(img, a.x, a.y, a.h));
+          await saveThumbFor(r.e, gameThumb(img, a.x, a.y, a.h));
           r.el.querySelector('.th').style.backgroundImage = `url('${thumbURL(r.e)}')`;
           r.checked = false;
           r.el.querySelector('input').checked = false;

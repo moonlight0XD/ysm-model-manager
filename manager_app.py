@@ -29,7 +29,7 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '0.5'
+APP_VERSION = '1.0.0'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
@@ -737,6 +737,38 @@ class GameInput:
 
         self.KEYBDINPUT, self.INPUT = KEYBDINPUT, INPUT
         u.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+        u.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+                                          wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
+        u.SendMessageTimeoutW.restype = ctypes.c_size_t
+        try:
+            self.imm = ctypes.WinDLL('imm32')
+            self.imm.ImmGetDefaultIMEWnd.argtypes = [wintypes.HWND]
+            self.imm.ImmGetDefaultIMEWnd.restype = wintypes.HWND
+        except OSError:
+            self.imm = None
+
+    # 遊戲視窗若開著中文輸入法，打字時空白、「-」等會被輸入法拿去組字，指令就會亂掉。
+    # 用 WM_IME_CONTROL 暫時關掉該視窗的輸入法（跨程序也有效），打完再還原。
+    def _ime_msg(self, hwnd, cmd, val=0):
+        if not self.imm:
+            return None
+        ime = self.imm.ImmGetDefaultIMEWnd(hwnd)
+        if not ime:
+            return None
+        out = self.ctypes.c_size_t(0)
+        ok = self.user32.SendMessageTimeoutW(ime, 0x0283, cmd, val, 0x0002, 300, self.ctypes.byref(out))  # WM_IME_CONTROL, SMTO_ABORTIFHUNG
+        return out.value if ok else None
+
+    def ime_off(self, hwnd):
+        """關閉輸入法，回傳原本是否開著（None = 無法得知）"""
+        prev = self._ime_msg(hwnd, 0x0005)  # IMC_GETOPENSTATUS
+        if prev:
+            self._ime_msg(hwnd, 0x0006, 0)  # IMC_SETOPENSTATUS → 關
+        return prev
+
+    def ime_restore(self, hwnd, prev):
+        if prev:
+            self._ime_msg(hwnd, 0x0006, 1)
 
     def _text(self, hwnd, fn, getlen=None):
         buf = self.ctypes.create_unicode_buffer(512)
@@ -822,7 +854,7 @@ class GameInput:
 
 
 GAME = None
-SCAN_T, SCAN_ENTER, SCAN_F2, SCAN_ESC = 0x14, 0x1C, 0x3C, 0x01
+SCAN_T, SCAN_ENTER, SCAN_F1, SCAN_F2, SCAN_ESC = 0x14, 0x1C, 0x3B, 0x3C, 0x01
 
 
 BRIDGE_JAR = 'ysmshot-forge-1.20.1-1.0.jar'
@@ -833,6 +865,16 @@ def game_dir_of(root):
     if os.path.basename(p).lower() == 'yes_steve_model' and os.path.basename(os.path.dirname(p)).lower() == 'config':
         return os.path.dirname(os.path.dirname(p))
     return None
+
+
+def _remove_thumb_files(names):
+    for n in names:
+        if not n:
+            continue
+        try:
+            os.remove(os.path.join(THUMB_DIR, os.path.basename(n)))
+        except OSError:
+            pass
 
 
 def list_images(d):
@@ -874,8 +916,13 @@ class Api:
         if not gd:
             raise ValueError('找不到這個實例的遊戲資料夾（需要 …/config/yes_steve_model）')
         shots = os.path.join(gd, 'screenshots')
-        if not isinstance(command, str) or not command.startswith('/') or '\n' in command or len(command) > 240:
+        # 可以一次送多條指令（例如先解除隱形再換模型），依序輸入
+        commands = command if isinstance(command, list) else [command]
+        if not 1 <= len(commands) <= 4:
             raise ValueError('指令格式不正確')
+        for c in commands:
+            if not isinstance(c, str) or not c.startswith('/') or '\n' in c or len(c) > 240:
+                raise ValueError('指令格式不正確')
         wait_sec = max(0.5, min(float(wait_sec), 20))
 
         def ensure_front():
@@ -885,17 +932,31 @@ class Api:
         g.focus(hwnd)
         time.sleep(0.3)
         ensure_front()
-        g.tap(SCAN_T)
-        time.sleep(0.45)
-        ensure_front()
-        g.type_text(command)
-        time.sleep(0.15)
-        ensure_front()
-        g.tap(SCAN_ENTER)
+        ime_prev = g.ime_off(hwnd)
+        try:
+            for i, c in enumerate(commands):
+                if i:
+                    time.sleep(0.35)
+                g.tap(SCAN_T)
+                time.sleep(0.45)
+                ensure_front()
+                g.type_text(c)
+                time.sleep(0.15)
+                ensure_front()
+                g.tap(SCAN_ENTER)
+        finally:
+            g.ime_restore(hwnd, ime_prev)
         time.sleep(wait_sec)
         ensure_front()
         before = list_images(shots)
-        g.tap(SCAN_F2)
+        # 截圖前按 F1 隱藏介面（聊天訊息、快捷欄不會擋到模型），截完再按一次還原
+        g.tap(SCAN_F1)
+        time.sleep(0.2)
+        try:
+            g.tap(SCAN_F2)
+        finally:
+            time.sleep(0.3)
+            g.tap(SCAN_F1)
         deadline = time.time() + 8
         new = None
         while time.time() < deadline:
@@ -1631,49 +1692,82 @@ class Api:
             raise ValueError('圖片太大')
         with LIB.lock:
             rec = LIB.record(key)
-            old = rec.get('thumb')
+            olds = [rec.get('thumb'), rec.pop('thumb_src', '')]  # 換了新縮圖，換背景前保留的原圖也不再需要
             name = f'{key}_{int(time.time() * 1000)}.{ext}'
             with open(os.path.join(THUMB_DIR, name), 'wb') as f:
                 f.write(raw)
             rec['thumb'] = name
             LIB.save()
-        if old and old != name:
-            try:
-                os.remove(os.path.join(THUMB_DIR, old))
-            except OSError:
-                pass
+        _remove_thumb_files(o for o in olds if o != name)
         return rec
+
+    def set_thumb_bg(self, key, data_url):
+        """換背景：data_url 是已經合成好背景的圖。第一次換時把原本的透明圖留下（thumb_src），之後可以再換或還原"""
+        m = re.match(r'data:image/png;base64,(.+)', data_url or '', re.S)
+        if not m:
+            raise ValueError('圖片格式不支援')
+        raw = base64.b64decode(m.group(1))
+        if len(raw) > 8 * 1024 * 1024:
+            raise ValueError('圖片太大')
+        with LIB.lock:
+            rec = LIB.record(key)
+            cur, src = rec.get('thumb'), rec.get('thumb_src')
+            if not cur and not src:
+                raise ValueError('這個模型沒有縮圖')
+            name = f'{key}_{int(time.time() * 1000)}_bg.png'
+            with open(os.path.join(THUMB_DIR, name), 'wb') as f:
+                f.write(raw)
+            drop = []
+            if src:
+                if cur and cur != src:
+                    drop.append(cur)
+            else:
+                rec['thumb_src'] = cur
+            rec['thumb'] = name
+            LIB.save()
+        _remove_thumb_files(drop)
+        return rec
+
+    def restore_thumb_bg(self, keys):
+        """還原成換背景前的原圖，回傳 {'restored': n, 'users': {key: rec}}"""
+        drop, out, n = [], {}, 0
+        with LIB.lock:
+            for key in dict.fromkeys(keys or []):
+                rec = LIB.record(key)
+                src = rec.pop('thumb_src', '')
+                if src:
+                    if rec.get('thumb') and rec['thumb'] != src:
+                        drop.append(rec['thumb'])
+                    rec['thumb'] = src
+                    n += 1
+                out[key] = rec
+            LIB.save()
+        _remove_thumb_files(drop)
+        return {'restored': n, 'users': out}
 
     def clear_thumb(self, key):
         with LIB.lock:
             rec = LIB.record(key)
-            old = rec.get('thumb')
+            olds = [rec.get('thumb'), rec.pop('thumb_src', '')]
             rec['thumb'] = ''
             LIB.save()
-        if old:
-            try:
-                os.remove(os.path.join(THUMB_DIR, old))
-            except OSError:
-                pass
+        _remove_thumb_files(olds)
         return rec
 
     def clear_thumbs(self, keys):
         """批量刪除縮圖，回傳 {key: 新的使用者資料}"""
-        olds, out = [], {}
+        olds, out, n = [], {}, 0
         with LIB.lock:
             for key in dict.fromkeys(keys or []):
                 rec = LIB.record(key)
                 if rec.get('thumb'):
-                    olds.append(rec['thumb'])
-                    rec['thumb'] = ''
+                    n += 1
+                olds += [rec.get('thumb'), rec.pop('thumb_src', '')]
+                rec['thumb'] = ''
                 out[key] = rec
             LIB.save()
-        for old in olds:
-            try:
-                os.remove(os.path.join(THUMB_DIR, old))
-            except OSError:
-                pass
-        return {'removed': len(olds), 'users': out}
+        _remove_thumb_files(olds)
+        return {'removed': n, 'users': out}
 
     def _entry(self, eid):
         e = LIB.entries.get(eid)

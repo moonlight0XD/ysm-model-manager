@@ -85,6 +85,7 @@
       <button class="btn small ghost" id="selNone">取消選取</button>
       <span class="sel-grp">安裝到<select id="selInst"></select><button class="btn small" id="selInstall">安裝</button></span>
       <span class="sel-grp">移到<select id="selFolder"></select><button class="btn small ghost" id="selMove">移動</button></span>
+      <button class="btn small ghost" id="selThumbBg" title="幫勾選模型的縮圖換背景（只對透明背景的縮圖有效，例如 3D 預覽、YSM Shot 拍的）">換背景</button>
       <button class="btn small ghost" id="selThumbDel" title="刪除勾選模型的縮圖（模型檔案不受影響）">刪除縮圖</button>
       <button class="btn small danger" id="selDelInst" title="把勾選的、在遊戲實例中的模型刪除（倉庫中的不受影響）" hidden>從實例刪除</button>
       <button class="btn small danger" id="selDelete" title="把勾選的模型從倉庫刪除（遊戲實例中已安裝的不受影響）">從倉庫刪除</button>
@@ -120,6 +121,28 @@
   </div>
 </div>
 
+<!-- 批量換背景 -->
+<div id="bgModal" class="modal" hidden>
+  <div class="modal-card bg-card">
+    <div class="modal-head"><b>批量換背景</b><span class="muted" id="bgInfo"></span><button class="x" data-close>✕</button></div>
+    <div class="bg-body">
+      <div class="bg-opts">
+        <div class="bg-presets" id="bgPresets"></div>
+        <div class="seg" id="bgMode">
+          <button data-m="solid" class="on">純色</button><button data-m="grad">漸層</button><button data-m="image">圖片</button><button data-m="none">透明</button>
+        </div>
+        <div class="bg-row" data-for="solid"><span>顏色</span><input type="color" id="bgC1" value="#2b3240"></div>
+        <div class="bg-row" data-for="grad" hidden><span>上方</span><input type="color" id="bgG1" value="#8fd3ff"><span>下方</span><input type="color" id="bgG2" value="#3d7fd1"></div>
+        <div class="bg-row" data-for="image" hidden><button class="btn small ghost" id="bgPick">選擇圖片…</button><span class="muted" id="bgImgName">尚未選擇</span><input type="file" id="bgFile" accept="image/*" hidden></div>
+        <div class="bg-row" data-for="none" hidden><span class="muted">還原成換背景前的透明原圖</span></div>
+        <p class="muted bg-note">只會改透明背景的縮圖（3D 預覽、YSM Shot、勾選「去除遊戲背景」的遊戲內截圖）。帶有遊戲畫面的截圖會自動略過。換過的縮圖會保留原圖，之後可以再換或還原。</p>
+      </div>
+      <div class="bg-prev"><div class="bg-prev-img" id="bgPrev"></div><span class="muted" id="bgPrevName"></span></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-close>取消</button><button class="btn" id="bgApply">套用</button></div>
+  </div>
+</div>
+
 <!-- 遊戲內截圖 -->
 <div id="gameModal" class="modal" hidden>
   <div class="modal-card wide">
@@ -136,9 +159,10 @@
       </ol>
       <ol class="steps" data-for="keys">
         <li>開啟遊戲，進入<b>單人世界</b>（建議超平坦、創造模式、允許作弊），站在光線充足的地方。</li>
-        <li>按 <kbd>F5</kbd> 切到<b>正面</b>第三人稱視角，按 <kbd>F1</kbd> 隱藏介面。輸入法切到<b>英文</b>。</li>
+        <li>按 <kbd>F5</kbd> 切到<b>正面</b>第三人稱視角。介面<b>不用</b>按 <kbd>F1</kbd> 隱藏（截圖時會自動隱藏再還原），輸入法也會自動切成英文。</li>
         <li>回到這裡，先「試拍第一個」確認模型有切換，並框出要當縮圖的範圍，再「開始批次截圖」。</li>
         <li>截圖期間<b>不要動鍵盤滑鼠</b>；切換到其他視窗就會自動停止。</li>
+        <li>勾選「去除遊戲背景」時，會先讓角色隱形拍一張空背景，再比對去背；背景最好是靜止的（例如看向地面或牆壁，避開雲、水和生物）。</li>
       </ol>
       <div class="game-form">
         <label data-for="keys">遊戲視窗<span class="inline"><select id="gWin"></select><button class="btn small ghost" id="gWinRefresh">重新整理</button></span></label>
@@ -151,6 +175,7 @@
       <div class="muted small-note">指令範本中 <code>{id}</code> 會換成模型 ID、<code>{tex}</code> 換成材質（<code>-</code> 為預設材質）。.ysm / .zip 的模型 ID 預設為檔名（不含副檔名），不對時可在下方修改，可在遊戲中用 Tab 自動完成確認。</div>
       <div class="row game-tools">
         <label class="check"><input id="gOnlyNew" type="checkbox" checked> 只拍還沒有縮圖的</label>
+        <label class="check" data-for="keys" title="每次開始前會先讓角色隱形，拍一張空背景，再和每張截圖比對把背景去掉，存成透明縮圖（之後可以批量換背景）。拍攝期間請不要移動視角；背景最好是靜止的（避開會動的雲、水、生物），建議看向地面或牆壁。"><input id="gCutout" type="checkbox"> 去除遊戲背景（可換背景）</label>
         <button class="btn small ghost" id="gAll">全選</button>
         <button class="btn small ghost" id="gNone">全不選</button>
         <span class="muted" id="gCount"></span>

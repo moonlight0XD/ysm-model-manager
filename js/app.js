@@ -24,7 +24,7 @@
 
   // ---------------- three.js 場景 ----------------
   const canvas = $('canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, alpha: false });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputEncoding = THREE.sRGBEncoding;
   const scene = new THREE.Scene();
@@ -579,5 +579,16 @@
   };
 
   // 供除錯用
-  window.YSMApp = { state, ctx, handleItems, scene, camera, controls, setView };
+  // 透明背景擷取（給縮圖用，之後可批量換背景）
+  function captureTransparent() {
+    const bg = scene.background;
+    scene.background = null;
+    renderer.setClearColor(0x000000, 0);
+    renderer.render(scene, camera);
+    const url = canvas.toDataURL('image/png');
+    scene.background = bg;
+    renderer.render(scene, camera);
+    return url;
+  }
+  window.YSMApp = { state, ctx, handleItems, scene, camera, controls, setView, captureTransparent };
 })();
