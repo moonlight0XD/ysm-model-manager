@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import zipfile
 
@@ -335,14 +336,29 @@ def ysm_public_summary(path):
         head = f.read(8192)
     if not head.startswith(YSM_MAGIC):
         return None
-    end_magic = head.find(b'\n\n')
-    version = head[3:end_magic].decode('ascii', errors='replace') if end_magic > 0 else 'YSGP'
-    start = end_magic + 2 if end_magic > 0 else len(YSM_MAGIC)
-    nul = head.find(b'\x00', start)
+    # 檔頭第一行是版本（換行可能是 \n 或 \r\n），摘要到第一個 0x00 為止；
+    # 只看 0x00 之前的部分，避免讀進後面的加密資料
+    nul = head.find(b'\x00')
     if nul < 0:
-        return {'container': version, 'text': ''}
-    text = head[start:nul].decode('utf-8', errors='replace').strip()
-    if not text or sum(ch.isprintable() or ch in '\r\n\t' for ch in text) < len(text) * 0.9:
+        nul = len(head)
+    plain = head[:nul]
+    eol = plain.find(b'\n')
+    if eol < 0:
+        return {'container': 'YSGP', 'text': ''}
+    version = plain[3:eol].decode('ascii', errors='replace').strip() or 'YSGP'
+    body = plain[eol + 1:]
+    text = ''
+    for enc in ('utf-8', 'gb18030'):
+        try:
+            text = body.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    # 零寬字元等看不見的排版字元直接拿掉
+    text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Cf').strip()
+    # 有控制字元或無法辨識的字元，就當作沒有公開摘要（不顯示亂碼）
+    if '�' in text or any(not ch.isprintable() and ch not in '\n\t' for ch in text):
         text = ''
     return {'container': version, 'text': text[:3000]}
 
