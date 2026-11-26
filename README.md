@@ -122,6 +122,7 @@ css/manager.css     管理器樣式
 js/manager.js       管理器介面邏輯
 build.bat           打包腳本
 make_version.py     產生 exe 版本資訊（打包時自動執行）
+make_icon.py        產生軟體圖示 assets/icon.png、assets/icon.ico
 mods/               打包進管理器的 YSM Shot MOD（ysmshot-forge-1.20.1-1.0.jar）
 ysmshot-mod/        YSM Shot MOD 原始碼（Forge 1.20.1）
 index.html          預覽器主頁面

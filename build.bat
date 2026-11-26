@@ -19,6 +19,7 @@ rem Windows 版只用 Edge WebView2：排除電腦上剛好裝了、但用不到
 %PY% -m PyInstaller --noconfirm --onefile --windowed --name "YSM模型管理器" ^
   --workpath "%TEMP%\ysm_manager_build" --specpath "%TEMP%\ysm_manager_build" ^
   --version-file "%TEMP%\ysm_manager_build\version_info.txt" ^
+  --icon "%~dp0assets\icon.ico" ^
   --add-data "%~dp0index.html;." --add-data "%~dp0manager.html;." ^
   --add-data "%~dp0css;css" --add-data "%~dp0js;js" --add-data "%~dp0lib;lib" ^
   --add-data "%~dp0mods;mods" ^
