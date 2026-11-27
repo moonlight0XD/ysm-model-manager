@@ -81,6 +81,7 @@
       <button class="btn ghost" id="btnBatch" title="為可預覽、還沒有縮圖的模型自動產生縮圖">批次產生縮圖</button>
       <button class="btn" id="btnGame" title="在遊戲中自動切換模型並截圖，做成縮圖（加密模型也適用）">遊戲內截圖</button>
       <span id="count" class="muted"></span>
+      <button class="btn update" id="btnUpdate" hidden></button>
     </div>
     <div id="selBar" hidden>
       <span class="sel-n">已選 <b id="selN">0</b> 個<span class="muted" id="selNote"></span></span>
@@ -215,6 +216,7 @@
         <label class="set-row"><span>語言</span>
           <select id="setLang"><option value="auto">自動（跟隨系統）</option><option value="zh-Hant" translate="no">繁體中文</option><option value="zh-Hans" translate="no">简体中文</option><option value="en" translate="no">English</option></select>
         </label>
+        <label class="check"><input type="checkbox" id="setCheckUpd"> 啟動時自動檢查新版本</label>
       </section>
       <section>
         <h3>顯示</h3>
@@ -252,6 +254,8 @@
         <div class="row">
           <button class="btn small" id="btnGithub">GitHub 專案頁 ↗</button>
           <button class="btn small ghost" id="btnReleases">下載最新版 ↗</button>
+          <button class="btn small ghost" id="btnVideo">介紹影片 ↗</button>
+          <button class="btn small ghost" id="btnCheckUpd">檢查更新</button>
         </div>
       </section>
       <section>

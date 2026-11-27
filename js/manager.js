@@ -1522,6 +1522,7 @@
     $('setGroupVer').checked = st.group_versions !== false;
     $('setConfirmCopy').checked = st.confirm_copy !== false;
     $('setConfirmDel').checked = st.confirm_delete_twice !== false;
+    $('setCheckUpd').checked = st.check_update !== false;
     $('setRepoPath').textContent = S.repo || __('尚未設定');
     $('setRepoChange').textContent = S.repo ? __('更換…') : __('設定…');
     $('setRepoOpen').disabled = !S.repo;
@@ -1545,6 +1546,7 @@
     location.search = q.toString();
   });
   $('setConfirmCopy').onchange = saveSetting(() => ({ confirm_copy: $('setConfirmCopy').checked }));
+  $('setCheckUpd').onchange = saveSetting(() => ({ check_update: $('setCheckUpd').checked }));
   $('setGroupVer').onchange = guard(async () => {
     S.settings = await api('set_settings', { group_versions: $('setGroupVer').checked });
     renderSettings();
@@ -1558,6 +1560,7 @@
   $('btnGithub').onclick = guard(() => api('open_project_page', 'home'));
   $('btnGithubTop').onclick = guard(() => api('open_project_page', 'home'));
   $('btnReleases').onclick = guard(() => api('open_project_page', 'releases'));
+  $('btnVideo').onclick = guard(() => api('open_project_page', 'video'));
   $('setDataOpen').onclick = guard(() => api('open_special_dir', 'data'));
   async function moveData(target) {
     const r = await ask({
@@ -1616,6 +1619,65 @@
     if (!r2.ok) return;
     await api('uninstall_app', restore, mod);
     document.body.innerHTML = `<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:16px;color:#aaa">${__('已解除安裝，管理器即將關閉…')}</div>`;
+  });
+
+  // ---------------- 自動更新 ----------------
+  // 由介面直接查詢 GitHub 的最新 Release；有新版時在上方顯示「更新到 vX」，按下後由後端下載、驗證並替換 exe
+  let UPD = null;
+  const verParts = (v) => String(v || '').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  function isNewer(a, b) {
+    const x = verParts(a), y = verParts(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    }
+    return false;
+  }
+  async function checkUpdate(manual) {
+    const st = S.settings || {};
+    const repo = String(st.github || '').replace(/^https:\/\/github\.com\//, '');
+    const r = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error(__('無法連線到 GitHub（{0}）', r.status));
+    const j = await r.json();
+    const ver = String(j.tag_name || '').replace(/^v/i, '');
+    if (!/^\d+(\.\d+){1,3}$/.test(ver) || !isNewer(ver, st.version)) {
+      UPD = null;
+      $('btnUpdate').hidden = true;
+      if (manual) toast(__('已經是最新版本（v{0}）', st.version));
+      return;
+    }
+    const a = (j.assets || []).find((x) => /\.exe$/i.test(x.name));
+    UPD = { version: ver, url: a ? a.browser_download_url : '', digest: (a && a.digest) || '', size: (a && a.size) || 0, notes: String(j.body || '').trim() };
+    $('btnUpdate').textContent = __('更新到 v{0}', ver);
+    $('btnUpdate').title = __('有新版本 v{0}，按這裡更新', ver);
+    $('btnUpdate').hidden = false;
+    if (manual) $('btnUpdate').click();
+  }
+  $('btnCheckUpd').onclick = guard(async () => {
+    $('btnCheckUpd').disabled = true;
+    try { await checkUpdate(true); } finally { $('btnCheckUpd').disabled = false; }
+  });
+  $('btnUpdate').onclick = guard(async () => {
+    if (!UPD) return;
+    const st = S.settings || {};
+    if (!st.can_update || !UPD.url) { await api('open_project_page', 'releases'); return; }
+    const r = await ask({
+      title: __('更新到 v{0}', UPD.version),
+      body: esc(__('目前版本：v{0}\n更新會下載新版，然後自動關閉並重新開啟管理器。標籤、評分、備註和縮圖都會保留。', st.version))
+        + (UPD.notes ? `<div class="upd-notes">${esc(UPD.notes)}</div>` : ''),
+      ok: __('立即更新'),
+    });
+    if (!r.ok) return;
+    const b = $('btnUpdate');
+    b.disabled = true;
+    b.textContent = __('下載中…');
+    try {
+      await api('update_app', UPD.url, UPD.digest, UPD.version, UPD.size);
+    } catch (e) {
+      b.disabled = false;
+      b.textContent = __('更新到 v{0}', UPD.version);
+      throw e;
+    }
+    document.body.innerHTML = `<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:16px;color:#aaa">${esc(__('新版已下載，管理器即將重新開啟…'))}</div>`;
   });
 
   // ---------------- 截圖挑選 ----------------
@@ -2303,6 +2365,7 @@
     try {
       applyState(await api('get_state'));
       S.settings = await api('get_settings');
+      if (S.settings.check_update !== false) checkUpdate(false).catch(() => {});
       $('footInfo').textContent = '';
       if (S.roots.length) await rescan();
       else { renderAll(); $('btnDetect').click(); }

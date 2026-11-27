@@ -30,8 +30,9 @@ import urllib.parse
 import zipfile
 
 APP_NAME = 'YSM 模型管理器'
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.2.0'
 GITHUB_URL = 'https://github.com/moonlight0XD/ysm-model-manager'
+VIDEO_URL = 'https://www.bilibili.com/video/BV1QU1JzgEuc'  # 介紹影片
 if getattr(sys, 'frozen', False):
     APP_DIR = sys._MEIPASS  # PyInstaller 解壓縮的資源目錄
 else:
@@ -45,6 +46,7 @@ DEFAULT_SETTINGS = {
     'confirm_copy': True,         # 無法硬連結時，改用複製前先詢問
     'confirm_delete_twice': True, # 刪除倉庫模型時確認兩次
     'group_versions': True,       # 同角色的不同版本合併成一張卡
+    'check_update': True,         # 啟動時檢查 GitHub 上有沒有新版本
     'data_dir': '',               # 空白 = BASE_DIR
 }
 
@@ -109,6 +111,11 @@ def system_lang():
 def effective_lang():
     v = SETTINGS.get('ui_lang')
     return v if v in LANGS else system_lang()
+
+
+def _ps_quote(p):
+    """PowerShell 單引號字串"""
+    return "'" + str(p).replace("'", "''") + "'"
 
 
 def T(text, *args):
@@ -1475,16 +1482,9 @@ class Api:
             # 有東西沒處理好就不要繼續，讓使用者先處理
             raise ValueError(T('解除安裝已中止：{0}', '；'.join(problems[:3]) + ('…' if len(problems) > 3 else '')))
 
-        def q(p):
-            return "'" + p.replace("'", "''") + "'"
+        q = _ps_quote
         frozen = getattr(sys, 'frozen', False)
-        pids = [os.getpid()] + ([os.getppid()] if frozen else [])  # onefile 版有一個啟動用的父行程
-        lines = [
-            "$ErrorActionPreference = 'SilentlyContinue'",
-            f"$pids = @({', '.join(map(str, pids))})",
-            "while ($pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }) { Start-Sleep -Milliseconds 500 }",
-            "Start-Sleep -Seconds 1",
-        ]
+        lines = ["$ErrorActionPreference = 'SilentlyContinue'"]
         # 只刪除管理器自己的檔案；資料夾（可能是使用者自選的）只在清空後才移除
         for d in {os.path.normcase(DATA_DIR): DATA_DIR, os.path.normcase(BASE_DIR): BASE_DIR}.values():
             for name in ('library.json', 'library.json.tmp', 'library.json.broken', 'settings.json', 'settings.json.tmp'):
@@ -1494,10 +1494,22 @@ class Api:
             lines.append(f"if (-not (Get-ChildItem -LiteralPath {q(d)} -Force)) {{ Remove-Item -LiteralPath {q(d)} -Force }}")
         if frozen:
             lines.append(f"Remove-Item -LiteralPath {q(sys.executable)} -Force")
-        lines.append("Remove-Item -LiteralPath $PSCommandPath -Force")
-        script = os.path.join(os.environ.get('TEMP') or BASE_DIR, f'ysm_manager_uninstall_{os.getpid()}.ps1')
+        self._run_after_exit('uninstall', lines)
+        return {'ok': True, 'exe': sys.executable if frozen else ''}
+
+    def _run_after_exit(self, tag, lines):
+        """寫一個 PowerShell 腳本，等管理器完全結束後執行 lines，然後關閉管理器"""
+        frozen = getattr(sys, 'frozen', False)
+        pids = [os.getpid()] + ([os.getppid()] if frozen else [])  # onefile 版有一個啟動用的父行程
+        head = [
+            f"$pids = @({', '.join(map(str, pids))})",
+            "while ($pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }) { Start-Sleep -Milliseconds 500 }",
+            "Start-Sleep -Seconds 1",
+        ]
+        tail = ["Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue"]
+        script = os.path.join(os.environ.get('TEMP') or BASE_DIR, f'ysm_manager_{tag}_{os.getpid()}.ps1')
         with open(script, 'w', encoding='utf-8-sig') as f:
-            f.write('\r\n'.join(lines) + '\r\n')
+            f.write('\r\n'.join(head + lines + tail) + '\r\n')
         cmd = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script]
         base_flags = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         try:
@@ -1515,21 +1527,112 @@ class Api:
                 pass
             os._exit(0)
         threading.Thread(target=bye, daemon=True).start()
-        return {'ok': True, 'exe': sys.executable if frozen else ''}
+
+    # ---------- 自動更新 ----------
+    def update_app(self, url, digest='', version='', size=0):
+        """
+        一鍵更新：下載 GitHub Release 上的新版 exe，驗證後由背景腳本在管理器結束時替換並重新開啟。
+        只接受本專案 Release 的下載網址；檢查新版本由前端直接查詢 GitHub API。
+        """
+        if not getattr(sys, 'frozen', False):
+            return {'unsupported': True}
+        prefix = GITHUB_URL + '/releases/download/'
+        if not (isinstance(url, str) and url.startswith(prefix) and url.lower().endswith('.exe')
+                and '..' not in url and re.fullmatch(r'[\w./%+-]+', url[len(prefix):])):
+            raise ValueError(T('更新網址不正確'))
+        if not re.fullmatch(r'\d+(\.\d+){1,3}', str(version or '')):
+            raise ValueError(T('版本號不正確'))
+        exe = sys.executable
+        folder, name = os.path.split(exe)
+        # 沿用原本的檔名，捷徑和釘選才不會失效
+        target = exe
+        tmp = os.path.join(folder, name + '.download')
+        try:
+            with open(tmp, 'wb'):
+                pass
+        except OSError:
+            raise ValueError(T('沒有權限寫入 {0}，請到 GitHub 手動下載新版。', folder))
+        env = dict(os.environ, YSM_UPDATE_URL=url, YSM_UPDATE_OUT=tmp)
+        curl = os.path.join(os.environ.get('SystemRoot') or r'C:\Windows', 'System32', 'curl.exe')
+        try:
+            if os.path.isfile(curl):
+                # 由 curl 輸出到 stdout、這裡寫檔，避免 curl 處理含中文的路徑
+                r = subprocess.run([curl, '-L', '--fail', '-sS', '--retry', '2', '--max-time', '600', url],
+                                   capture_output=True, timeout=660, creationflags=0x08000000)
+                if not r.returncode:
+                    with open(tmp, 'wb') as f:
+                        f.write(r.stdout)
+            else:
+                r = subprocess.run(['powershell.exe', '-NoProfile', '-Command',
+                                    "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri $env:YSM_UPDATE_URL -OutFile $env:YSM_UPDATE_OUT"],
+                                   capture_output=True, timeout=660, env=env, creationflags=0x08000000)
+            err = (r.stderr or b'').decode('utf-8', 'replace').strip()
+            if r.returncode or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1024 * 1024:
+                raise ValueError(T('下載失敗：{0}', err[:200] or T('檔案不完整')))
+            if size and os.path.getsize(tmp) != int(size):
+                raise ValueError(T('下載失敗：{0}', T('檔案大小不符')))
+            h = hashlib.sha256()
+            with open(tmp, 'rb') as f:
+                if f.read(2) != b'MZ':
+                    raise ValueError(T('下載失敗：{0}', T('不是 exe 檔案')))
+                f.seek(0)
+                for chunk in iter(lambda: f.read(1 << 20), b''):
+                    h.update(chunk)
+            if digest and digest.lower() != 'sha256:' + h.hexdigest():
+                raise ValueError(T('下載失敗：{0}', T('檔案校驗碼不符')))
+        except subprocess.TimeoutExpired:
+            self._remove_quiet(tmp)
+            raise ValueError(T('下載失敗：{0}', T('連線逾時')))
+        except Exception:
+            self._remove_quiet(tmp)
+            raise
+        # 先把舊版改名備份，新版放好才刪掉備份；任何一步失敗就還原並開回舊版
+        q = _ps_quote
+        bak = exe + '.old'
+        lines = [
+            "function Retry($sb) { for ($i = 0; $i -lt 20; $i++) { try { & $sb; return $true } catch { Start-Sleep -Milliseconds 500 } }; return $false }",
+            f"$exe = {q(exe)}; $bak = {q(bak)}; $tmp = {q(tmp)}; $target = {q(target)}",
+            "if (Retry { Move-Item -LiteralPath $exe -Destination $bak -Force -ErrorAction Stop }) {",
+            "  if (Retry { Move-Item -LiteralPath $tmp -Destination $target -Force -ErrorAction Stop }) {",
+            "    Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue",
+            "    Start-Process -FilePath $target -WorkingDirectory (Split-Path $target)",
+            "  } else {",
+            "    Move-Item -LiteralPath $bak -Destination $exe -Force -ErrorAction SilentlyContinue",
+            "    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue",
+            "    Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)",
+            "  }",
+            "} else {",
+            "  Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue",
+            "  Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)",
+            "}",
+        ]
+        self._run_after_exit('update', lines)
+        return {'ok': True, 'exe': target}
+
+    @staticmethod
+    def _remove_quiet(p):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
 
     # ---------- 設定 ----------
     def get_settings(self):
         return dict(SETTINGS, lang=SETTINGS['ui_lang'], lang_effective=effective_lang(),
-                    data_dir_now=DATA_DIR, data_dir_default=BASE_DIR, version=APP_VERSION, github=GITHUB_URL)
+                    data_dir_now=DATA_DIR, data_dir_default=BASE_DIR, version=APP_VERSION, github=GITHUB_URL,
+                    can_update=bool(getattr(sys, 'frozen', False)))
 
     def open_project_page(self, which='home'):
-        """開啟本專案的 GitHub 頁面（固定網址，不需警告）"""
+        """開啟本專案的 GitHub 頁面或介紹影片（固定網址，不需警告）"""
         import webbrowser
-        webbrowser.open(GITHUB_URL + ('/releases/latest' if which == 'releases' else ''), new=2)
+        if which == 'video':
+            webbrowser.open(VIDEO_URL, new=2)
+        else:
+            webbrowser.open(GITHUB_URL + ('/releases/latest' if which == 'releases' else ''), new=2)
         return True
 
     def set_settings(self, patch):
-        for k in ('lang', 'confirm_copy', 'confirm_delete_twice', 'group_versions'):
+        for k in ('lang', 'confirm_copy', 'confirm_delete_twice', 'group_versions', 'check_update'):
             if k in patch:
                 v = patch[k]
                 if k == 'lang':
