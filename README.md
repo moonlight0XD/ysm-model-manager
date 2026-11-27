@@ -7,7 +7,7 @@
 
 一個離線的 Yes Steve Model（YSM）模型工具，分成兩部分：
 
-- **YSM 模型管理器**（Windows 應用程式）：`YSM模型管理器-v版本號.exe`（Release 上的檔名是 `YSM-Model-Manager-v版本號.exe`），用來整理你收藏的模型
+- **YSM 模型管理器**（Windows 應用程式）：`YSM-Model-Manager.exe`（[下載最新版](https://github.com/moonlight0XD/ysm-model-manager/releases/latest/download/YSM-Model-Manager.exe)），用來整理你收藏的模型
 - **YSM 模型預覽器**：3D 預覽未加密的模型。可以在管理器上方按「模型預覽器」開啟，也可以直接用瀏覽器開 `index.html`（網頁版）
 
 ## YSM 模型管理器
