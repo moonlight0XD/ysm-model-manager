@@ -118,7 +118,7 @@ exe 的版本資訊（右鍵 →「內容」→「詳細資料」）由 `make_ve
 ## 檔案結構
 
 ```
-dist/YSM模型管理器-v版本號.exe  打包好的應用程式
+dist/YSM模型管理器.exe  打包好的應用程式
 manager_app.py      管理器後端（掃描、資料庫、檔案操作、本機伺服器、視窗）
 manager.html        管理器介面
 css/manager.css     管理器樣式

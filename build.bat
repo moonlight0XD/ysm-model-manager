@@ -15,7 +15,6 @@ rem exe 的版本資訊（右鍵內容 → 詳細資料），版本號取自 man
 if not exist "%TEMP%\ysm_manager_build" mkdir "%TEMP%\ysm_manager_build"
 %PY% "%~dp0make_version.py" "%TEMP%\ysm_manager_build\version_info.txt"
 if errorlevel 1 exit /b 1
-set /p VER=<"%TEMP%\ysm_manager_build\version.txt"
 rem Windows 版只用 Edge WebView2：排除電腦上剛好裝了、但用不到的套件（PyQt 等），縮小 exe
 rem 管理器只連本機 http，也排除 OpenSSL（約 6 MB，hashlib 會改用內建的 sha1/sha256）和其他用不到的標準函式庫
 %PY% -m PyInstaller --noconfirm --onefile --windowed --name "YSM模型管理器" ^
@@ -39,8 +38,5 @@ if errorlevel 1 (
   echo 打包失敗，請看上面的錯誤訊息
   exit /b 1
 )
-rem 檔名加上版本號，例如 dist\YSM模型管理器-v1.1.0.exe
-move /y "dist\YSM模型管理器.exe" "dist\YSM模型管理器-v%VER%.exe" >nul
-if errorlevel 1 exit /b 1
 echo.
-echo 完成：dist\YSM模型管理器-v%VER%.exe
+echo 完成：dist\YSM模型管理器.exe
